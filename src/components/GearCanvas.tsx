@@ -3,7 +3,7 @@ import { drawTooltip, hexToRgba, renderGrid, tracePath, useModifierKeys, useView
 import { useDesignStore } from '../stores/designStore'
 import { useSettingsStore, useThemeStore, useUiStore, useViewportStore } from '../stores/settingsStore'
 import { MAX_MODULE, MIN_MODULE, clampTeeth, dpToModule, moduleToDp, type GearSpec } from '../model/design'
-import type { GearGeometry } from '../model/gear'
+import type { GearGeometry, Issue } from '../model/gear'
 import { computeDoc, gearAngle, gearLetter, type DocGeometry } from '../model/train'
 import { bitSize, toothSizeLabel } from '../model/template'
 import { len, num } from '../model/format'
@@ -110,6 +110,99 @@ function dragFrame(id: Exclude<HandleId, 'place'>, geo: DocGeometry, index: numb
   return { anchor, axis, perModule: d / geo.gears[index].spec.module }
 }
 
+// ---------------------------------------------------------------------------
+// Issue markers: a badge where each problem is, with the check message on hover
+// ---------------------------------------------------------------------------
+
+const ISSUE_TITLES: Record<string, string> = {
+  profile: 'Tooth shape',
+  undercut: 'Undercut',
+  'tip-narrow': 'Narrow tips',
+  'small-teeth': 'Small teeth',
+  'drill-small': 'Gaps too narrow to drill',
+  clearance: 'Root holes too big',
+  'blade-radius': 'Tighter than the blade',
+  bore: 'Bore too big',
+  'bore-wall': 'Thin wall at the bore',
+  contact: 'Low contact ratio',
+  'tip-clearance': 'Tip clearance',
+  'mesh-module': 'Won’t mesh',
+  'mesh-angle': 'Won’t mesh',
+  'mesh-kind': 'Won’t mesh',
+}
+
+/** Where on a gear each check points: the tooth tip, a root, the bore, or the gear as a whole */
+const ISSUE_PLACE: Record<string, 'tip' | 'root' | 'bore' | 'body'> = {
+  profile: 'tip',
+  'tip-narrow': 'tip',
+  undercut: 'root',
+  'drill-small': 'root',
+  clearance: 'root',
+  'blade-radius': 'root',
+  bore: 'bore',
+  'bore-wall': 'bore',
+}
+
+interface IssueMarker {
+  key: string
+  pos: Vec
+  issues: Issue[]
+}
+
+/** Angle in `angles` closest to `target` */
+function nearestAngle(angles: number[], target: number): number {
+  const off = (a: number) => Math.abs(Math.atan2(Math.sin(a - target), Math.cos(a - target)))
+  return angles.reduce((best, a) => (off(a) < off(best) ? a : best))
+}
+
+function issueMarkers(geo: DocGeometry, driverAngle: number): IssueMarker[] {
+  const markers: IssueMarker[] = []
+  const shown = (i: Issue) => i.level !== 'info'
+  geo.gears.forEach((g, index) => {
+    const issues = g.issues.filter(shown)
+    if (!issues.length) return
+    const c = geo.placements[index].center
+    const theta = gearAngle(geo.placements[index], driverAngle)
+    const dir = outward(geo, index)
+    const z = g.spec.teeth
+    // Put markers on the side away from the mesh and the handles
+    const tip = nearestAngle(Array.from({ length: z }, (_, k) => theta + (2 * Math.PI * k) / z), dir + Math.PI / 2)
+    const root = nearestAngle(Array.from({ length: z }, (_, k) => theta + (Math.PI * (2 * k + 1)) / z), dir + Math.PI / 4)
+    const boreR = g.bore?.kind === 'circle' ? g.bore.radius : g.spec.bore.diameter / 2
+    const places = {
+      tip: polar(c, g.profile.dims.ra, tip),
+      root: polar(c, g.stats.rootDiameter / 2, root),
+      bore: polar(c, boreR, dir + Math.PI / 2),
+      body: polar(c, g.dims.r, dir + Math.PI),
+    }
+    for (const place of ['tip', 'root', 'bore', 'body'] as const) {
+      const here = issues.filter((i) => (ISSUE_PLACE[i.code] ?? 'body') === place)
+      if (here.length) markers.push({ key: `${index}:${place}`, pos: places[place], issues: here })
+    }
+  })
+  // Pair problems sit where the teeth meet
+  geo.meshes.forEach((mesh, i) => {
+    const issues = mesh.issues.filter(shown)
+    if (!issues.length) return
+    const a = geo.placements[mesh.a].center
+    const b = geo.placements[mesh.b].center
+    const u = Math.atan2(b.y - a.y, b.x - a.x)
+    markers.push({ key: `mesh:${i}`, pos: polar(a, geo.gears[mesh.a].dims.r, u), issues })
+  })
+  return markers
+}
+
+function issueTooltip(marker: IssueMarker): TooltipContent {
+  const titles = [...new Set(marker.issues.map((i) => ISSUE_TITLES[i.code] ?? 'Check'))]
+  return {
+    value: titles.join(' · '),
+    action: marker.issues.map((i) => i.message).join(' '),
+    tone: marker.issues.some((i) => i.level === 'error') ? 'danger' : 'warning',
+  }
+}
+
+const MARKER_RADIUS = 8
+
 function dragUpdate(id: Exclude<HandleId, 'place'>, info: PointerInfo, spec: GearSpec, frame: DragFrame): Partial<GearSpec> {
   const { unit, snap } = useSettingsStore.getState()
   const free = info.shift || !snap
@@ -147,6 +240,8 @@ export function GearCanvas() {
   const [hovered, setHovered] = useState<HandleId | null>(null)
   /** Another gear under the pointer, which a click would select */
   const [hoverGear, setHoverGear] = useState<number | null>(null)
+  /** Issue marker under the pointer */
+  const [hoverIssue, setHoverIssue] = useState<string | null>(null)
   const [dragging, setDragging] = useState<HandleId | null>(null)
   const draggingRef = useRef<HandleId | null>(null)
   const frameRef = useRef<DragFrame | null>(null)
@@ -155,6 +250,15 @@ export function GearCanvas() {
 
   const latest = useRef({ geo, handles, selected })
   latest.current = { geo, handles, selected }
+
+  /** The issue marker under the pointer, in screen space so the badge size doesn't depend on zoom */
+  const issueAt = (screen: Vec): string | null => {
+    const { pan, zoom } = useViewportStore.getState()
+    for (const m of issueMarkers(latest.current.geo, driverAngle.current)) {
+      if (Math.hypot(m.pos.x * zoom + pan.x - screen.x, m.pos.y * zoom + pan.y - screen.y) <= MARKER_RADIUS + 3) return m.key
+    }
+    return null
+  }
 
   const hitTest = (info: PointerInfo): HandleId | null => {
     const tolerance = (matchMedia('(pointer: coarse)').matches ? 22 : 12) / useViewportStore.getState().zoom
@@ -219,11 +323,13 @@ export function GearCanvas() {
     },
     onHover: (info) => {
       const id = info ? hitTest(info) : null
-      const gear = !id && info ? gearAt(info.world) : null
+      const issue = !id && info ? issueAt(info.screen) : null
+      const gear = !id && !issue && info ? gearAt(info.world) : null
       const other = gear !== null && gear !== latest.current.selected ? gear : null
       setHovered(id)
+      setHoverIssue(issue)
       setHoverGear(other)
-      if (canvasRef.current) canvasRef.current.style.cursor = id ? 'grab' : other !== null ? 'pointer' : ''
+      if (canvasRef.current) canvasRef.current.style.cursor = id ? 'grab' : issue ? 'help' : other !== null ? 'pointer' : ''
     },
   })
 
@@ -242,7 +348,7 @@ export function GearCanvas() {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx || size.width === 0) return
-    draw(ctx, { canvas, dpr: size.dpr, pan, zoom, theme, geo, selected, driverAngle: driverAngle.current, handles, active: dragging ?? hovered, dragging: dragging !== null, hoverGear, held, unit, showConstruction, showMeasurements, playing })
+    draw(ctx, { canvas, dpr: size.dpr, pan, zoom, theme, geo, selected, driverAngle: driverAngle.current, handles, active: dragging ?? hovered, dragging: dragging !== null, hoverGear, hoverIssue, held, unit, showConstruction, showMeasurements, playing })
   }
   const renderRef = useRef(render)
   renderRef.current = render
@@ -250,7 +356,7 @@ export function GearCanvas() {
   useEffect(() => {
     const frame = requestAnimationFrame(() => renderRef.current())
     return () => cancelAnimationFrame(frame)
-  }, [size, pan, zoom, theme, geo, selected, handles, hovered, dragging, hoverGear, held, unit, showConstruction, showMeasurements, playing])
+  }, [size, pan, zoom, theme, geo, selected, handles, hovered, dragging, hoverGear, hoverIssue, held, unit, showConstruction, showMeasurements, playing])
 
   // Animation: the driver turns at its RPM, every other gear follows its placement speed
   useEffect(() => {
@@ -290,6 +396,7 @@ interface DrawContext {
   active: HandleId | null
   dragging: boolean
   hoverGear: number | null
+  hoverIssue: string | null
   held: ModifierState
   unit: LengthUnit
   showConstruction: boolean
@@ -357,9 +464,11 @@ function draw(ctx: CanvasRenderingContext2D, d: DrawContext) {
     pill(ctx, `Gear ${gearLetter(i)} can’t be drawn – see Checks`, { x: c.x * zoom + pan.x, y: c.y * zoom + pan.y + 24 }, theme, true)
   })
 
-  // Handles (hidden while animating)
+  // Handles and issue badges (hidden while animating)
   if (d.playing) return
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  const markers = issueMarkers(geo, d.driverAngle)
+  for (const m of markers) drawIssueMarker(ctx, { x: m.pos.x * zoom + pan.x, y: m.pos.y * zoom + pan.y }, m.issues.some((i) => i.level === 'error'), m.key === d.hoverIssue, theme)
   for (const handle of d.handles) {
     const s = { x: handle.pos.x * zoom + pan.x, y: handle.pos.y * zoom + pan.y }
     drawHandle(ctx, s, handle.shape, handle.id === d.active, theme)
@@ -370,6 +479,9 @@ function draw(ctx: CanvasRenderingContext2D, d: DrawContext) {
     const s = { x: active.pos.x * zoom + pan.x, y: active.pos.y * zoom + pan.y }
     if (d.dragging) pill(ctx, active.label, { x: s.x, y: s.y - 20 }, theme, true)
     else drawTooltip(ctx, active.tooltip, s, theme, { held: d.held })
+  } else if (d.hoverIssue) {
+    const m = markers.find((x) => x.key === d.hoverIssue)
+    if (m) drawTooltip(ctx, issueTooltip(m), { x: m.pos.x * zoom + pan.x, y: m.pos.y * zoom + pan.y - MARKER_RADIUS }, theme)
   } else if (d.hoverGear !== null) {
     const c = geo.placements[d.hoverGear].center
     drawTooltip(ctx, { action: `Click to edit gear ${gearLetter(d.hoverGear)}` }, { x: c.x * zoom + pan.x, y: c.y * zoom + pan.y }, theme)
@@ -451,6 +563,23 @@ function drawGear(ctx: CanvasRenderingContext2D, d: DrawContext, g: GearGeometry
   }
   ctx.lineWidth = px
   cross(ctx, origin, 7 * px)
+}
+
+/** A round "!" badge: red for errors, accent for warnings */
+function drawIssueMarker(ctx: CanvasRenderingContext2D, at: Vec, error: boolean, hovered: boolean, theme: CanvasTheme) {
+  const r = hovered ? MARKER_RADIUS + 1.5 : MARKER_RADIUS
+  ctx.beginPath()
+  ctx.arc(at.x, at.y, r, 0, Math.PI * 2)
+  ctx.fillStyle = error ? theme.danger : theme.accent
+  ctx.fill()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = theme.background
+  ctx.stroke()
+  ctx.fillStyle = theme.background
+  ctx.font = `700 ${hovered ? 12 : 11}px 'JetBrains Mono', ui-monospace, monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('!', at.x, at.y + 0.5)
 }
 
 function drawHandle(ctx: CanvasRenderingContext2D, at: Vec, shape: Handle['shape'], active: boolean, theme: CanvasTheme) {
