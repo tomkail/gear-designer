@@ -11,7 +11,6 @@ import {
   Select,
   Stat,
   bitsFor,
-  formatLength,
   isStandardBit,
   nearestBit,
   parseLength,
@@ -22,7 +21,8 @@ import { useSettingsStore, useUiStore } from '../stores/settingsStore'
 import { BLADES, MAX_GEARS, MAX_MODULE, MAX_TEETH, MIN_MODULE, MIN_TEETH, TOOTH_SIZES, moduleToDp, parseToothSize, type BoreType, type GearSpec, type RootMode } from '../model/design'
 import { autoProfileShift } from '../model/gear'
 import { computeDoc, gearLetter } from '../model/train'
-import { bitSize, docSpecLines, len } from '../model/template'
+import { bitSize, docSpecLines } from '../model/template'
+import { len, lenField, num, numField } from '../model/format'
 import { addMatingGear, removeGear } from '../actions'
 import styles from './GearPanel.module.css'
 
@@ -42,7 +42,7 @@ interface LengthFieldProps {
 }
 
 function LengthField({ id, label, value, onChange, unit, min = 0, max = 500, sliderMax, hint, bits, invalid }: LengthFieldProps) {
-  const format = (mm: number) => formatLength(mm, unit, { withUnit: false, mmDecimals: 2, inDecimals: 3 })
+  const format = (mm: number) => lenField(mm, unit)
   const parse = (text: string) => parseLength(text, unit)
   const standard = bits ? isStandardBit(value) : null
   const nearest = bits ? nearestBit(value, unit) : null
@@ -85,7 +85,6 @@ function LengthField({ id, label, value, onChange, unit, min = 0, max = 500, sli
   )
 }
 
-const r2 = (v: number) => String(Math.round(v * 100) / 100)
 
 export function GearPanel({ className }: { className?: string }) {
   const doc = useDesignStore((s) => s.doc)
@@ -148,25 +147,25 @@ export function GearPanel({ className }: { className?: string }) {
 
         {pair && mesh && (
           <PanelSection title="Pair">
-            <Stat label="Ratio" value={`1 : ${r2(mesh.ratio)}`} />
+            <Stat label="Ratio" value={`1 : ${num(mesh.ratio)}`} />
             <p className={styles.explain}>
               {mesh.ratio === 1
                 ? 'Both gears turn at the same speed, in opposite directions.'
                 : mesh.ratio > 1
-                  ? `A turns ${r2(mesh.ratio)} times for each turn of B. B turns slower, with more force.`
-                  : `B turns ${r2(1 / mesh.ratio)} times for each turn of A. B turns faster, with less force.`}
+                  ? `A turns ${num(mesh.ratio)} times for each turn of B. B turns slower, with more force.`
+                  : `B turns ${num(1 / mesh.ratio)} times for each turn of A. B turns faster, with less force.`}
             </p>
             <Stat label="Axle spacing" value={len(mesh.centreDistance, unit)} />
             {Math.abs(mesh.centreDistance - mesh.standardDistance) > 1e-6 && <Stat label="Without profile shift" value={len(mesh.standardDistance, unit)} />}
-            <Stat label="Contact ratio" value={mesh.contactRatio.toFixed(2)} tone={mesh.contactRatio < 1.2 ? 'danger' : mesh.contactRatio < 1.4 ? 'warning' : undefined} />
+            <Stat label="Contact ratio" value={num(mesh.contactRatio)} tone={mesh.contactRatio < 1.2 ? 'danger' : mesh.contactRatio < 1.4 ? 'warning' : undefined} />
             <Stat label="Play between teeth" value={len(mesh.backlash, unit)} />
             <Stat label="Tip clearance" value={len(mesh.tipClearance, unit)} tone={mesh.tipClearance < 0.1 * spec.module ? 'warning' : undefined} />
-            {Math.abs(mesh.workingAngle / (Math.PI / 180) - spec.pressureAngle) > 0.01 && <Stat label="Working pressure angle" value={`${r2(mesh.workingAngle / (Math.PI / 180))}°`} />}
-            <Field label="A turns at" htmlFor="rpm" hint={`B turns at ${r2(doc.driverRpm / mesh.ratio)} RPM, the opposite way. Press P to play.`}>
-              <NumberField id="rpm" value={doc.driverRpm} onChange={(v) => update({ driverRpm: v })} min={-600} max={600} step={1} suffix="RPM" format={r2} />
+            {Math.abs(mesh.workingAngle / (Math.PI / 180) - spec.pressureAngle) > 0.01 && <Stat label="Working pressure angle" value={`${num(mesh.workingAngle / (Math.PI / 180))}°`} />}
+            <Field label="A turns at" htmlFor="rpm" hint={`B turns at ${num(doc.driverRpm / mesh.ratio)} RPM, the opposite way. Press P to play.`}>
+              <NumberField id="rpm" value={doc.driverRpm} onChange={(v) => update({ driverRpm: v })} min={-600} max={600} step={1} suffix="RPM" format={numField} />
             </Field>
             <Field label="B sits at" htmlFor="meshAngle" hint="Direction from A to B. Or drag B’s centre round A on the canvas.">
-              <NumberField id="meshAngle" value={mesh.angle} onChange={(v) => useDesignStore.getState().setMeshAngle(mesh.b, v)} min={-180} max={180} step={15} suffix="°" format={r2} />
+              <NumberField id="meshAngle" value={mesh.angle} onChange={(v) => useDesignStore.getState().setMeshAngle(mesh.b, v)} min={-180} max={180} step={15} suffix="°" format={numField} />
             </Field>
           </PanelSection>
         )}
@@ -181,7 +180,7 @@ export function GearPanel({ className }: { className?: string }) {
             hint={
               <>
                 {pair ? 'Shared by both gears. ' : ''}
-                {inch ? `Module ${r2(m)}` : `${r2(moduleToDp(m))} DP`} · teeth {len(g.stats.circularPitch, 'mm')} ({len(g.stats.circularPitch, 'in')}) apart on the pitch circle. Type “m4” or “6dp” to use either.
+                {inch ? `Module ${num(m)}` : `${num(moduleToDp(m))} DP`} · teeth {len(g.stats.circularPitch, 'mm')} ({len(g.stats.circularPitch, 'in')}) apart on the pitch circle. Type “m4” or “6dp” to use either.
               </>
             }
           >
@@ -190,12 +189,12 @@ export function GearPanel({ className }: { className?: string }) {
                 id="size"
                 value={m}
                 onChange={(v) => set({ module: v })}
-                format={(v) => r2(inch ? moduleToDp(v) : v)}
+                format={(v) => numField(inch ? moduleToDp(v) : v)}
                 parse={(text) => parseToothSize(text, inch ? 'dp' : 'module')}
                 min={MIN_MODULE}
                 max={MAX_MODULE}
                 step={0.25}
-                suffix={inch ? 'DP' : 'module'}
+                suffix={inch ? 'DP' : 'mod'}
                 invalid={errorCodes.has('small-teeth')}
               />
               <div className={styles.bitSelect}>
@@ -228,8 +227,8 @@ export function GearPanel({ className }: { className?: string }) {
                 {suggestedShift.needed === 0
                   ? 'Not needed at this tooth count'
                   : suggestedShift.capped
-                    ? `${r2(suggestedShift.needed)} would avoid undercut, but the tips would be too narrow. ${r2(suggestedShift.value)} is the most they allow`
-                    : `${r2(suggestedShift.value)} avoids undercut at ${spec.teeth} teeth`}{' '}
+                    ? `${num(suggestedShift.needed)} would avoid undercut, but the tips would be too narrow. ${num(suggestedShift.value)} is the most they allow`
+                    : `${num(suggestedShift.value)} avoids undercut at ${spec.teeth} teeth`}{' '}
                 ·{' '}
                 <button className={styles.link} onClick={() => set({ profileShift: suggestedShift.value })}>
                   auto
@@ -237,7 +236,7 @@ export function GearPanel({ className }: { className?: string }) {
               </>
             }
           >
-            <NumberField id="shift" value={spec.profileShift} onChange={(v) => set({ profileShift: v })} min={-0.5} max={1} step={0.05} format={r2} invalid={errorCodes.has('undercut') || errorCodes.has('tip-narrow')} />
+            <NumberField id="shift" value={spec.profileShift} onChange={(v) => set({ profileShift: v })} min={-0.5} max={1} step={0.05} format={numField} invalid={errorCodes.has('undercut') || errorCodes.has('tip-narrow')} />
           </Field>
           <LengthField
             id="backlash"
@@ -247,7 +246,7 @@ export function GearPanel({ className }: { className?: string }) {
             unit={unit}
             min={0}
             max={m}
-            hint={`Each tooth is thinned by this much (${r2(spec.backlash / m)} × module). A pair’s play is the sum.`}
+            hint={`Each tooth is thinned by this much (${num(spec.backlash / m)} × module). A pair’s play is the sum.`}
           />
         </PanelSection>
 
@@ -273,11 +272,11 @@ export function GearPanel({ className }: { className?: string }) {
             </>
           ) : (
             <Field label="Root fillet" htmlFor="fillet" hint={g.stats.rootFillet !== null ? `${len(g.stats.rootFillet, unit)} radius` : undefined}>
-              <NumberField id="fillet" value={spec.rootFillet} onChange={(v) => set({ rootFillet: v })} min={0} max={1} step={0.02} format={r2} suffix="× m" invalid={errorCodes.has('blade-radius')} />
+              <NumberField id="fillet" value={spec.rootFillet} onChange={(v) => set({ rootFillet: v })} min={0} max={1} step={0.02} format={numField} suffix="× m" invalid={errorCodes.has('blade-radius')} />
             </Field>
           )}
           <Field label="Tip rounding" htmlFor="tip" hint={`${len(g.stats.tipRound, unit)} radius`}>
-            <NumberField id="tip" value={spec.tipRound} onChange={(v) => set({ tipRound: v })} min={0} max={1} step={0.02} format={r2} suffix="× m" />
+            <NumberField id="tip" value={spec.tipRound} onChange={(v) => set({ tipRound: v })} min={0} max={1} step={0.02} format={numField} suffix="× m" />
           </Field>
         </PanelSection>
 

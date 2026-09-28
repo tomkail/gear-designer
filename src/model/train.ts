@@ -1,6 +1,7 @@
-import { formatLength, type LengthUnit, type Vec } from '@tomkail/workshop-kit'
+import type { LengthUnit, Vec } from '@tomkail/workshop-kit'
 import type { GearDoc } from './design'
 import type { GearGeometry, Issue } from './gear'
+import { len, num } from './format'
 import { DEG, inv } from './involute'
 import { kindOf } from './kinds'
 
@@ -92,7 +93,7 @@ export function computeDoc(doc: GearDoc, unit: LengthUnit): DocGeometry {
   const index = new Map(doc.gears.map((g, i) => [g.id, i]))
   const placements: Placement[] = doc.gears.map((g) => ({ id: g.id, center: g.position, phase: 0, speed: 1 }))
   const meshes: MeshInfo[] = []
-  const L = (mm: number) => formatLength(mm, unit, { mmDecimals: 2, inDecimals: 3 })
+  const L = (mm: number) => len(mm, unit)
 
   for (const link of doc.links) {
     const ia = index.get(link.a)
@@ -124,9 +125,9 @@ export function computeDoc(doc: GearDoc, unit: LengthUnit): DocGeometry {
     const tipClearance = Math.min(a - A.dims.ra - B.stats.rootDiameter / 2, a - B.dims.ra - A.stats.rootDiameter / 2)
 
     if (eps < 1.2) {
-      issues.push({ code: 'contact', level: 'warning', message: `The contact ratio is only ${eps.toFixed(2)}, so the gears will knock as each tooth hands over to the next. Use more teeth, less tip rounding, or 20°.` })
+      issues.push({ code: 'contact', level: 'warning', message: `The contact ratio is only ${num(eps)}, so the gears will knock as each tooth hands over to the next. Use more teeth, less tip rounding, or 20°.` })
     } else if (eps < 1.4) {
-      issues.push({ code: 'contact-low', level: 'info', message: `Contact ratio ${eps.toFixed(2)}. Wooden gears run more smoothly at 1.4 or more.` })
+      issues.push({ code: 'contact-low', level: 'info', message: `Contact ratio ${num(eps)}. Wooden gears run more smoothly at 1.4 or more.` })
     }
     if (tipClearance < 0.1 * m) {
       issues.push({ code: 'tip-clearance', level: tipClearance <= 0 ? 'error' : 'warning', message: `Only ${L(tipClearance)} between a tooth tip and the other gear’s root. Reduce the profile shift.` })

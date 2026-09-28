@@ -1,6 +1,5 @@
 import {
   approxFraction,
-  formatLength,
   isStandardBit,
   layoutPages,
   textWidthMm,
@@ -16,6 +15,7 @@ import {
 } from '@tomkail/workshop-kit'
 import type { GearDoc, GearSpec } from './design'
 import type { GearGeometry } from './gear'
+import { len, num } from './format'
 import { gearLetter, type DocGeometry, type MeshInfo } from './train'
 
 /**
@@ -49,9 +49,7 @@ export interface PageOptions extends TemplateOptions {
 // Text
 // ---------------------------------------------------------------------------
 
-export function len(mm: number, unit: LengthUnit): string {
-  return formatLength(mm, unit, { mmDecimals: 1, inDecimals: 3 })
-}
+export { len }
 
 /** Drill sizes, named in the system the bit is sold in, plus the other-system equivalent */
 export function bitSize(mm: number, unit: LengthUnit): string {
@@ -59,12 +57,11 @@ export function bitSize(mm: number, unit: LengthUnit): string {
   return system === 'mm' ? `Ø${len(mm, 'mm')} (${approxFraction(mm)})` : `Ø${len(mm, 'in')} (${len(mm, 'mm')})`
 }
 
-const r2 = (v: number) => Math.round(v * 100) / 100
 
 /** "module 4 (6.35 DP)" or "6.35 DP (module 4)" depending on the unit */
 export function toothSizeLabel(module: number, unit: LengthUnit): string {
-  const dp = r2(25.4 / module)
-  return unit === 'in' ? `${dp} DP (module ${r2(module)})` : `module ${r2(module)} (${dp} DP)`
+  const dp = num(25.4 / module)
+  return unit === 'in' ? `${dp} DP (module ${num(module)})` : `module ${num(module)} (${dp} DP)`
 }
 
 export function boreDescription(spec: GearSpec, unit: LengthUnit): string {
@@ -84,14 +81,14 @@ export function boreDescription(spec: GearSpec, unit: LengthUnit): string {
 /** Human-readable spec lines, shared by the panel and the printed template */
 export function specLines(spec: GearSpec, g: GearGeometry, unit: LengthUnit): string[] {
   const s = g.stats
-  const shift = spec.profileShift ? ` · profile shift ${r2(spec.profileShift)}` : ''
+  const shift = spec.profileShift ? ` · profile shift ${num(spec.profileShift)}` : ''
   const lines = [
     `${spec.teeth} teeth · ${toothSizeLabel(spec.module, unit)} · ${spec.pressureAngle}° pressure angle${shift}`,
     `Pitch Ø${len(s.pitchDiameter, unit)} · outside Ø${len(s.outsideDiameter, unit)} · root Ø${len(s.rootDiameter, unit)} · tooth spacing ${len(s.circularPitch, unit)}`,
   ]
   if (g.drill) {
     lines.push(
-      `Drill ${spec.teeth} × ${bitSize(g.drill.diameter, unit)} root holes, centres on a ${len(g.drill.centreRadius * 2, unit)} circle, ${r2(360 / spec.teeth)}° apart (step-off ${len(g.drill.stepOff, unit)})`
+      `Drill ${spec.teeth} × ${bitSize(g.drill.diameter, unit)} root holes, centres on a ${len(g.drill.centreRadius * 2, unit)} circle, ${num(360 / spec.teeth)}° apart (step-off ${len(g.drill.stepOff, unit)})`
     )
   }
   lines.push(boreDescription(spec, unit))
@@ -102,7 +99,7 @@ export function specLines(spec: GearSpec, g: GearGeometry, unit: LengthUnit): st
 export function meshLine(mesh: MeshInfo, geo: DocGeometry, unit: LengthUnit): string {
   const A = geo.gears[mesh.a].spec
   const B = geo.gears[mesh.b].spec
-  return `${gearLetter(mesh.a)} (${A.teeth} teeth) drives ${gearLetter(mesh.b)} (${B.teeth} teeth): ratio 1 : ${r2(mesh.ratio)} · axle spacing ${len(mesh.centreDistance, unit)} · contact ratio ${mesh.contactRatio.toFixed(2)}`
+  return `${gearLetter(mesh.a)} (${A.teeth} teeth) drives ${gearLetter(mesh.b)} (${B.teeth} teeth): ratio 1 : ${num(mesh.ratio)} · axle spacing ${len(mesh.centreDistance, unit)} · contact ratio ${num(mesh.contactRatio)}`
 }
 
 /** Spec lines for the whole document: each gear, prefixed with its letter when there's a pair */

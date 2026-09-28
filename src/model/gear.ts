@@ -1,6 +1,7 @@
-import { bitsFor, formatLength, type LengthUnit, type Vec } from '@tomkail/workshop-kit'
+import { bitsFor, type LengthUnit, type Vec } from '@tomkail/workshop-kit'
 import type { BoreSpec, CuttingSpec, GearSpec } from './design'
 import { moduleToDp } from './design'
+import { len, num } from './format'
 import { DEG, flankAngle, gearOutline, idealDrillDiameter, maxRootFillet, maxTipRound, toothProfile, dimensions, type GearDimensions, type Path, type ToothInput, type ToothProfile } from './involute'
 
 /**
@@ -154,7 +155,7 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
   const m = spec.module
   const dims = dimensions({ ...toToothInput(spec, 0), root: { kind: 'fillet', radius: 0 } })
   const issues: Issue[] = []
-  const L = (mm: number) => formatLength(mm, unit, { mmDecimals: 1, inDecimals: 3 })
+  const L = (mm: number) => len(mm, unit)
 
   // Root: pick the drill, or clamp the fillet
   let drillDiameter = spec.drillDiameter
@@ -213,7 +214,7 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
     issues.push({ code: 'tip-narrow', level: 'warning', message: `The tooth tips are only ${L(tipLand)} wide and will chip in wood. Use less profile shift${spec.pressureAngle < 25 ? ', more teeth, or a 25° pressure angle' : ' or more teeth'}.` })
   }
   if (m < 2.5) {
-    issues.push({ code: 'small-teeth', level: 'warning', message: `Module ${round2(m)} teeth are small for wood. Aim for module 3 or more (DP 8 or less).` })
+    issues.push({ code: 'small-teeth', level: 'warning', message: `Module ${num(m)} teeth are small for wood. Aim for module 3 or more (DP 8 or less).` })
   }
   if (spec.teeth < 10) {
     issues.push({ code: 'few-teeth', level: 'info', message: 'Few teeth means short grain across some of them. Plywood holds up better than solid wood.' })
@@ -282,7 +283,6 @@ function toToothInput(spec: GearSpec, drillDiameter: number): ToothInput {
   }
 }
 
-const round2 = (v: number) => Math.round(v * 100) / 100
 
 /** Radius that encloses everything drawn for the gear */
 export const gearExtent = (g: GearGeometry) => g.dims.ra

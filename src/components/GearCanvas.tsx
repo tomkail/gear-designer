@@ -5,7 +5,8 @@ import { useSettingsStore, useThemeStore, useUiStore, useViewportStore } from '.
 import { MAX_MODULE, MIN_MODULE, clampTeeth, dpToModule, moduleToDp, type GearSpec } from '../model/design'
 import type { GearGeometry } from '../model/gear'
 import { computeDoc, gearAngle, gearLetter, type DocGeometry } from '../model/train'
-import { bitSize, len, toothSizeLabel } from '../model/template'
+import { bitSize, toothSizeLabel } from '../model/template'
+import { len, num } from '../model/format'
 import { canvasSize, fitView } from '../actions'
 import styles from './GearCanvas.module.css'
 
@@ -41,7 +42,7 @@ function computeHandles(geo: DocGeometry, index: number, unit: LengthUnit): Hand
     { id: 'teeth', pos: polar(c, g.dims.r, dir - Math.PI / 2), shape: 'dot', label: `${gearLetter(index)} · ${g.spec.teeth} teeth · pitch Ø${len(g.dims.r * 2, unit)}` },
   ]
   const mesh = geo.meshes.find((m) => m.b === index)
-  if (mesh) handles.push({ id: 'place', pos: c, shape: 'ring', label: `Drag round ${gearLetter(mesh.a)} · ${Math.round(mesh.angle)}°` })
+  if (mesh) handles.push({ id: 'place', pos: c, shape: 'ring', label: `Drag round ${gearLetter(mesh.a)} · ${num(mesh.angle, 3, 0, 1)}°` })
   return handles
 }
 
