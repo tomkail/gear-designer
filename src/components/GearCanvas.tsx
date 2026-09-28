@@ -45,13 +45,45 @@ function computeHandles(geo: DocGeometry, index: number, unit: LengthUnit): Hand
   return handles
 }
 
-function dragUpdate(id: Exclude<HandleId, 'place'>, info: PointerInfo, spec: GearSpec, center: Vec): Partial<GearSpec> {
+/**
+ * A fixed frame for a size or teeth drag, captured when the drag starts.
+ *
+ * A driven gear's centre moves when its size or tooth count changes (the
+ * axle spacing grows with both), so measuring from its current centre
+ * would feed back into itself and jitter. Instead each drag measures along
+ * a fixed axis from a point that doesn't move:
+ *  - size: from the gear it meshes with (or its own centre if it drives),
+ *    along the line of centres. The handle's distance along it is exactly
+ *    proportional to the module.
+ *  - teeth: from the gear's centre, across the line of centres, where the
+ *    gear doesn't move. The distance is the pitch radius, m·z/2.
+ */
+interface DragFrame {
+  anchor: Vec
+  axis: Vec
+  /** Size drags: handle distance along the axis per unit of module */
+  perModule: number
+}
+
+const dot = (a: Vec, b: Vec) => a.x * b.x + a.y * b.y
+
+function dragFrame(id: Exclude<HandleId, 'place'>, geo: DocGeometry, index: number, handle: Handle): DragFrame {
+  const c = geo.placements[index].center
+  const dir = outward(geo, index)
+  if (id === 'teeth') return { anchor: c, axis: { x: Math.cos(dir - Math.PI / 2), y: Math.sin(dir - Math.PI / 2) }, perModule: 0 }
+  const mesh = geo.meshes.find((m) => m.b === index)
+  const anchor = mesh ? geo.placements[mesh.a].center : c
+  const axis = { x: Math.cos(dir), y: Math.sin(dir) }
+  const d = dot({ x: handle.pos.x - anchor.x, y: handle.pos.y - anchor.y }, axis)
+  return { anchor, axis, perModule: d / geo.gears[index].spec.module }
+}
+
+function dragUpdate(id: Exclude<HandleId, 'place'>, info: PointerInfo, spec: GearSpec, frame: DragFrame): Partial<GearSpec> {
   const { unit, snap } = useSettingsStore.getState()
   const free = info.shift || !snap
-  const radius = dist(info.world, center)
-  if (id === 'teeth') return { teeth: clampTeeth((2 * radius) / spec.module) }
-  // Tip radius = m(z/2 + 1 + x)
-  let m = radius / (spec.teeth / 2 + 1 + spec.profileShift)
+  const along = dot({ x: info.world.x - frame.anchor.x, y: info.world.y - frame.anchor.y }, frame.axis)
+  if (id === 'teeth') return { teeth: clampTeeth((2 * along) / spec.module) }
+  let m = along / frame.perModule
   if (!free) m = unit === 'in' ? dpToModule(Math.max(1, Math.round(moduleToDp(m) * 2) / 2)) : Math.round(m * 4) / 4
   return { module: Math.min(MAX_MODULE, Math.max(MIN_MODULE, Math.round(m * 1000) / 1000)) }
 }
@@ -81,6 +113,7 @@ export function GearCanvas() {
   const [hovered, setHovered] = useState<HandleId | null>(null)
   const [dragging, setDragging] = useState<HandleId | null>(null)
   const draggingRef = useRef<HandleId | null>(null)
+  const frameRef = useRef<DragFrame | null>(null)
   /** Driver rotation in radians; advanced by the animation, kept across edits */
   const driverAngle = useRef(0)
 
@@ -118,6 +151,9 @@ export function GearCanvas() {
         return false
       }
       draggingRef.current = id
+      const { geo, selected, handles } = latest.current
+      const handle = handles.find((h) => h.id === id)
+      frameRef.current = id !== 'place' && handle ? dragFrame(id, geo, selected, handle) : null
       setDragging(id)
       if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing'
       return true
@@ -133,12 +169,13 @@ export function GearCanvas() {
         const deg = Math.atan2(info.world.y - c.y, info.world.x - c.x) * DEG
         const { snap } = useSettingsStore.getState()
         setMeshAngle(selected, normaliseDegrees(info.shift || !snap ? Math.round(deg * 10) / 10 : Math.round(deg / 15) * 15))
-      } else {
-        updateGear(dragUpdate(id, info, geo.gears[selected].spec, geo.placements[selected].center), selected)
+      } else if (frameRef.current) {
+        updateGear(dragUpdate(id, info, geo.gears[selected].spec, frameRef.current), selected)
       }
     },
     onDragEnd: (info) => {
       draggingRef.current = null
+      frameRef.current = null
       setDragging(null)
       const id = hitTest(info)
       setHovered(id)
