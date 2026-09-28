@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tomkail/workshop-kit": "github:tomkail/workshop-kit#v0.1.0",
+    "@tomkail/workshop-kit": "github:tomkail/workshop-kit#v0.2.0",
     "lucide-react": "^0.562.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

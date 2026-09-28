@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { hexToRgba, renderGrid, tracePath, useViewportCanvas, type CanvasTheme, type LengthUnit, type PointerInfo, type Vec } from '@tomkail/workshop-kit'
+import { drawTooltip, hexToRgba, renderGrid, tracePath, useModifierKeys, useViewportCanvas, type CanvasTheme, type LengthUnit, type ModifierState, type PointerInfo, type TooltipContent, type Vec } from '@tomkail/workshop-kit'
 import { useDesignStore } from '../stores/designStore'
 import { useSettingsStore, useThemeStore, useUiStore, useViewportStore } from '../stores/settingsStore'
 import { MAX_MODULE, MIN_MODULE, clampTeeth, dpToModule, moduleToDp, type GearSpec } from '../model/design'
@@ -16,7 +16,10 @@ interface Handle {
   id: HandleId
   pos: Vec
   shape: 'dot' | 'diamond' | 'ring'
+  /** Shown beside the handle while dragging */
   label: string
+  /** Shown on hover: value, what dragging does, modifier keys */
+  tooltip: TooltipContent
 }
 
 const polar = (c: Vec, r: number, a: number): Vec => ({ x: c.x + r * Math.cos(a), y: c.y + r * Math.sin(a) })
@@ -32,17 +35,45 @@ function outward(geo: DocGeometry, index: number): number {
   return Math.atan2(c.y - other.y, c.x - other.x)
 }
 
-function computeHandles(geo: DocGeometry, index: number, unit: LengthUnit): Handle[] {
+function computeHandles(geo: DocGeometry, index: number, unit: LengthUnit, snap: boolean): Handle[] {
   const g = geo.gears[index]
   if (!g) return []
   const c = geo.placements[index].center
   const dir = outward(geo, index)
+  const pair = geo.gears.length > 1
+  const size = toothSizeLabel(g.spec.module, unit)
+  const teeth = `${g.spec.teeth} teeth · pitch Ø${len(g.dims.r * 2, unit)}`
   const handles: Handle[] = [
-    { id: 'size', pos: polar(c, g.dims.ra, dir), shape: 'diamond', label: `Tooth size: ${toothSizeLabel(g.spec.module, unit)}` },
-    { id: 'teeth', pos: polar(c, g.dims.r, dir - Math.PI / 2), shape: 'dot', label: `${gearLetter(index)} · ${g.spec.teeth} teeth · pitch Ø${len(g.dims.r * 2, unit)}` },
+    {
+      id: 'size',
+      pos: polar(c, g.dims.ra, dir),
+      shape: 'diamond',
+      label: `Tooth size: ${size}`,
+      tooltip: {
+        value: size,
+        action: pair ? 'Drag to change tooth size (both gears)' : 'Drag to change tooth size',
+        modifiers: snap ? [`⇧ drag freely (snaps to ${unit === 'in' ? '½ DP' : '0.25 module'})`] : ['Snapping off · S to turn on'],
+      },
+    },
+    {
+      id: 'teeth',
+      pos: polar(c, g.dims.r, dir - Math.PI / 2),
+      shape: 'dot',
+      label: `${gearLetter(index)} · ${teeth}`,
+      tooltip: { value: teeth, action: 'Drag out to add teeth, in to remove' },
+    },
   ]
   const mesh = geo.meshes.find((m) => m.b === index)
-  if (mesh) handles.push({ id: 'place', pos: c, shape: 'ring', label: `Drag round ${gearLetter(mesh.a)} · ${num(mesh.angle, 3, 0, 1)}°` })
+  if (mesh) {
+    const angle = `${num(mesh.angle, 3, 0, 1)}°`
+    handles.push({
+      id: 'place',
+      pos: c,
+      shape: 'ring',
+      label: `Round ${gearLetter(mesh.a)} · ${angle}`,
+      tooltip: { value: angle, action: `Drag to swing ${gearLetter(index)} round ${gearLetter(mesh.a)}`, modifiers: snap ? ['⇧ any angle (snaps to 15°)'] : ['Snapping off · S to turn on'] },
+    })
+  }
   return handles
 }
 
@@ -108,10 +139,14 @@ export function GearCanvas() {
   const selected = Math.min(useUiStore((s) => s.selected), doc.gears.length - 1)
   const select = useUiStore((s) => s.select)
   const playing = useUiStore((s) => s.playing)
+  const snap = useSettingsStore((s) => s.snap)
+  const held = useModifierKeys()
 
   const geo = useMemo(() => computeDoc(doc, unit), [doc, unit])
-  const handles = useMemo(() => computeHandles(geo, selected, unit), [geo, selected, unit])
+  const handles = useMemo(() => computeHandles(geo, selected, unit, snap), [geo, selected, unit, snap])
   const [hovered, setHovered] = useState<HandleId | null>(null)
+  /** Another gear under the pointer, which a click would select */
+  const [hoverGear, setHoverGear] = useState<number | null>(null)
   const [dragging, setDragging] = useState<HandleId | null>(null)
   const draggingRef = useRef<HandleId | null>(null)
   const frameRef = useRef<DragFrame | null>(null)
@@ -184,8 +219,11 @@ export function GearCanvas() {
     },
     onHover: (info) => {
       const id = info ? hitTest(info) : null
+      const gear = !id && info ? gearAt(info.world) : null
+      const other = gear !== null && gear !== latest.current.selected ? gear : null
       setHovered(id)
-      if (canvasRef.current) canvasRef.current.style.cursor = id ? 'grab' : info && gearAt(info.world) !== null ? 'pointer' : ''
+      setHoverGear(other)
+      if (canvasRef.current) canvasRef.current.style.cursor = id ? 'grab' : other !== null ? 'pointer' : ''
     },
   })
 
@@ -204,7 +242,7 @@ export function GearCanvas() {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx || size.width === 0) return
-    draw(ctx, { canvas, dpr: size.dpr, pan, zoom, theme, geo, selected, driverAngle: driverAngle.current, handles, active: dragging ?? hovered, unit, showConstruction, showMeasurements, playing })
+    draw(ctx, { canvas, dpr: size.dpr, pan, zoom, theme, geo, selected, driverAngle: driverAngle.current, handles, active: dragging ?? hovered, dragging: dragging !== null, hoverGear, held, unit, showConstruction, showMeasurements, playing })
   }
   const renderRef = useRef(render)
   renderRef.current = render
@@ -212,7 +250,7 @@ export function GearCanvas() {
   useEffect(() => {
     const frame = requestAnimationFrame(() => renderRef.current())
     return () => cancelAnimationFrame(frame)
-  }, [size, pan, zoom, theme, geo, selected, handles, hovered, dragging, unit, showConstruction, showMeasurements, playing])
+  }, [size, pan, zoom, theme, geo, selected, handles, hovered, dragging, hoverGear, held, unit, showConstruction, showMeasurements, playing])
 
   // Animation: the driver turns at its RPM, every other gear follows its placement speed
   useEffect(() => {
@@ -250,6 +288,9 @@ interface DrawContext {
   driverAngle: number
   handles: Handle[]
   active: HandleId | null
+  dragging: boolean
+  hoverGear: number | null
+  held: ModifierState
   unit: LengthUnit
   showConstruction: boolean
   showMeasurements: boolean
@@ -323,10 +364,15 @@ function draw(ctx: CanvasRenderingContext2D, d: DrawContext) {
     const s = { x: handle.pos.x * zoom + pan.x, y: handle.pos.y * zoom + pan.y }
     drawHandle(ctx, s, handle.shape, handle.id === d.active, theme)
   }
+  // Dragging shows the live value; hovering shows the full tooltip (value, action, modifier keys)
   const active = d.handles.find((h) => h.id === d.active)
   if (active) {
     const s = { x: active.pos.x * zoom + pan.x, y: active.pos.y * zoom + pan.y }
-    pill(ctx, active.label, { x: s.x, y: s.y - 20 }, theme, true)
+    if (d.dragging) pill(ctx, active.label, { x: s.x, y: s.y - 20 }, theme, true)
+    else drawTooltip(ctx, active.tooltip, s, theme, { held: d.held })
+  } else if (d.hoverGear !== null) {
+    const c = geo.placements[d.hoverGear].center
+    drawTooltip(ctx, { action: `Click to edit gear ${gearLetter(d.hoverGear)}` }, { x: c.x * zoom + pan.x, y: c.y * zoom + pan.y }, theme)
   }
 }
 
