@@ -1,0 +1,74 @@
+.name {
+  width: 100%;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.name:hover {
+  border-color: var(--panel-border);
+}
+
+.name:focus {
+  border-color: var(--accent-color);
+  background: var(--panel-item-bg);
+}
+
+.explain {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.lengthRow {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.lengthRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.bitSelect {
+  width: 78px;
+  flex-shrink: 0;
+}
+
+.ok {
+  display: block;
+  color: var(--accent-color);
+}
+
+.muted {
+  display: block;
+}
+
+.link {
+  color: var(--accent-color);
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
+.spec {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.spec li {
+  padding-left: 10px;
+  border-left: 2px solid var(--panel-border);
+}

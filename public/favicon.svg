@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-32 -32 64 64" width="32" height="32">
+  <style>.g{fill:#1a1918;stroke:#fbbf24}.b{fill:#fbbf24}@media (prefers-color-scheme: dark){.g{fill:#fbbf24}.b{fill:#1a1918}}</style>
+  <g class="g" stroke-width="2.5" stroke-linejoin="round">
+    <path d="M-5 -29 H5 L7 -21 A22 22 0 0 1 14.5 -16.8 L22.3 -19.5 L27.3 -10.8 L21.1 -5.4 A22 22 0 0 1 21.1 5.4 L27.3 10.8 L22.3 19.5 L14.5 16.8 A22 22 0 0 1 7 21 L5 29 H-5 L-7 21 A22 22 0 0 1 -14.5 16.8 L-22.3 19.5 L-27.3 10.8 L-21.1 5.4 A22 22 0 0 1 -21.1 -5.4 L-27.3 -10.8 L-22.3 -19.5 L-14.5 -16.8 A22 22 0 0 1 -7 -21 Z"/>
+  </g>
+  <circle class="b" r="7"/>
+</svg>
