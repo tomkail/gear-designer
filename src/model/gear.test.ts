@@ -26,13 +26,36 @@ describe('gear checks', () => {
     expect(codes({ teeth: 12, pressureAngle: 25 })).not.toContain('undercut')
   })
 
-  it('auto profile shift removes the undercut warning', () => {
-    for (const teeth of [8, 10, 12, 15]) {
-      const x = autoProfileShift(teeth, 20)
-      expect(x).toBeGreaterThan(0)
-      expect(codes({ teeth, profileShift: x })).not.toContain('undercut')
+  it('auto profile shift removes the undercut warning when the tips allow', () => {
+    for (const teeth of [12, 15]) {
+      const shift = autoProfileShift({ ...DEFAULT_GEAR, teeth })
+      expect(shift.capped).toBe(false)
+      expect(codes({ teeth, profileShift: shift.value })).not.toContain('undercut')
     }
-    expect(autoProfileShift(30, 20)).toBe(0)
+    expect(autoProfileShift({ ...DEFAULT_GEAR, teeth: 30 })).toEqual({ value: 0, needed: 0, capped: false })
+  })
+
+  it('auto profile shift never makes the teeth pointed or the tips too narrow', () => {
+    for (const pressureAngle of [20, 25]) {
+      for (let teeth = 6; teeth <= 20; teeth++) {
+        const shift = autoProfileShift({ ...DEFAULT_GEAR, teeth, pressureAngle })
+        const found = codes({ teeth, pressureAngle, profileShift: shift.value })
+        expect(found).not.toContain('profile')
+        if (shift.value > 0) expect(found).not.toContain('tip-narrow')
+      }
+    }
+    // The case that made the gear vanish: 8 teeth at 20° needs 0.54, but the tips only allow about 0.2
+    const eight = autoProfileShift({ ...DEFAULT_GEAR, teeth: 8 })
+    expect(eight.capped).toBe(true)
+    expect(eight.needed).toBeCloseTo(0.54, 2)
+    expect(eight.value).toBeLessThan(0.25)
+  })
+
+  it('still draws a gear whose teeth come to a point, but marks it invalid', () => {
+    const g = compute({ teeth: 8, profileShift: 0.54 })
+    expect(codes({ teeth: 8, profileShift: 0.54 })).toContain('profile')
+    expect(g.outline).not.toBeNull()
+    expect(g.valid).toBe(false)
   })
 
   it('warns about small teeth and narrow tips', () => {

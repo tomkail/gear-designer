@@ -310,13 +310,20 @@ export interface ToothProfile {
 }
 
 export function toothProfile(input: ToothInput): ToothProfile {
-  const d = dimensions(input)
+  let d = dimensions(input)
   const fail = (error: string): ToothProfile => ({ dims: d, tip: null, root: null, rootKind: input.root.kind, half: { start: polar(d.ra, 0), segments: [] }, tooth: { start: polar(d.ra, 0), segments: [] }, error })
 
   if (d.s <= 0) return fail('The backlash is larger than the tooth, so there’s nothing left.')
-  if (flankAngle(d, d.ra) <= 0) return fail('The teeth come to a point before the tip circle. Use less profile shift, or more teeth.')
+  // Teeth that come to a point are still drawn, cut off where the flanks meet, so the problem is visible
+  let pointed: string | null = null
+  if (flankAngle(d, d.ra) <= 0) {
+    const tipAt = bisect((rho) => flankAngle(d, rho), Math.max(d.rb, d.rf), d.ra)
+    if (tipAt === null) return fail('The teeth come to a point below the root. Use less profile shift, or more teeth.')
+    d = { ...d, ra: tipAt }
+    pointed = 'The teeth come to a point before the tip circle. Use less profile shift, or more teeth.'
+  }
 
-  const tipRadius = Math.min(input.tipRound, maxTipRound(d))
+  const tipRadius = pointed ? 0 : Math.min(input.tipRound, maxTipRound(d))
   const tip = tipCorner(d, tipRadius)
 
   let root: ToothProfile['root'] = null
@@ -358,7 +365,7 @@ export function toothProfile(input: ToothInput): ToothProfile {
   const half: Path = { start: polar(d.ra, 0), segments }
   const lower = reversePath(mirrorPath(half))
   const tooth: Path = { start: lower.start, segments: [...lower.segments, ...half.segments] }
-  return { dims: d, tip, root, rootKind: input.root.kind, half, tooth, error: null }
+  return { dims: d, tip, root, rootKind: input.root.kind, half, tooth, error: pointed }
 }
 
 /** The whole gear: every tooth, rotated round from tooth 0 */

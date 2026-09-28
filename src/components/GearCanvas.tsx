@@ -265,6 +265,19 @@ function draw(ctx: CanvasRenderingContext2D, d: DrawContext) {
 
   if (d.showMeasurements && !d.playing) drawMeasurements(ctx, d)
 
+  // A gear with no outline would otherwise vanish; outline its tip circle and say why
+  geo.gears.forEach((g, i) => {
+    if (g.outline) return
+    const c = geo.placements[i].center
+    world()
+    ctx.lineWidth = 2 * px
+    ctx.strokeStyle = theme.danger
+    circle(ctx, c, g.dims.ra)
+    ctx.stroke()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    pill(ctx, `Gear ${gearLetter(i)} can’t be drawn – see Checks`, { x: c.x * zoom + pan.x, y: c.y * zoom + pan.y + 24 }, theme, true)
+  })
+
   // Handles (hidden while animating)
   if (d.playing) return
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)

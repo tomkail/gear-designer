@@ -69,10 +69,45 @@ export function autoDrillDiameter(dims: GearDimensions, unit: LengthUnit): numbe
   return fits.length ? fits[fits.length - 1].diameter : null
 }
 
-/** Profile shift that just avoids undercut (0 when none is needed) */
-export function autoProfileShift(teeth: number, pressureAngle: number): number {
-  const x = 1 - (teeth * Math.sin(pressureAngle * DEG) ** 2) / 2
-  return x > 0 ? Math.ceil(x * 100) / 100 : 0
+/** Tooth tips narrower than this (× module) chip in wood */
+export const MIN_TIP_LAND = 0.25
+
+/** Width across the tooth tip for a given profile shift */
+export function tipLandAt(spec: Pick<GearSpec, 'teeth' | 'module' | 'pressureAngle' | 'backlash'>, x: number): number {
+  const d = dimensions({ teeth: spec.teeth, module: spec.module, pressureAngle: spec.pressureAngle, profileShift: x, backlash: spec.backlash, tipRound: 0, root: { kind: 'fillet', radius: 0 } })
+  return 2 * d.ra * flankAngle(d, d.ra)
+}
+
+export interface ShiftSuggestion {
+  /** The shift to use */
+  value: number
+  /** Shift that would fully avoid undercut (0 when none is needed) */
+  needed: number
+  /** True when the tips can't take the full `needed` shift */
+  capped: boolean
+}
+
+/**
+ * Profile shift that avoids undercut, but never so much that the tips get
+ * narrower than MIN_TIP_LAND × module. With few teeth you can't have both,
+ * so it stops at the most shift the tips allow.
+ */
+export function autoProfileShift(spec: Pick<GearSpec, 'teeth' | 'module' | 'pressureAngle' | 'backlash'>): ShiftSuggestion {
+  const raw = 1 - (spec.teeth * Math.sin(spec.pressureAngle * DEG) ** 2) / 2
+  const needed = raw > 0 ? Math.ceil(raw * 100) / 100 : 0
+  if (needed === 0) return { value: 0, needed, capped: false }
+  const minLand = MIN_TIP_LAND * spec.module
+  if (tipLandAt(spec, needed) >= minLand) return { value: needed, needed, capped: false }
+  // Tip width falls as shift grows; find the most shift that keeps it wide enough
+  let lo = 0
+  let hi = needed
+  if (tipLandAt(spec, 0) < minLand) return { value: 0, needed, capped: true }
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (tipLandAt(spec, mid) >= minLand) lo = mid
+    else hi = mid
+  }
+  return { value: Math.floor(lo * 100) / 100, needed, capped: true }
 }
 
 export function boreShape(bore: BoreSpec): BoreShape {
@@ -136,7 +171,8 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
 
   const profile = toothProfile(toToothInput(spec, drillDiameter))
   if (profile.error) issues.push({ code: 'profile', level: 'error', message: profile.error })
-  const outline = profile.error || (spec.root === 'drill' && drillDiameter <= 0) ? null : gearOutline(profile)
+  // A profile with an error may still be drawable (e.g. pointed teeth); it's shown but marked invalid
+  const outline = profile.tooth.segments.length === 0 || (spec.root === 'drill' && drillDiameter <= 0) ? null : gearOutline(profile)
 
   const bottom = profile.root?.bottom ?? dims.rf
   const clearance = dims.rf + 0.25 * m - bottom
@@ -165,14 +201,15 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
   const zMin = 2 / Math.sin(dims.alpha) ** 2
   const xMin = 1 - (spec.teeth * Math.sin(dims.alpha) ** 2) / 2
   if (spec.profileShift < xMin - 1e-6) {
-    issues.push({
-      code: 'undercut',
-      level: 'warning',
-      message: `${spec.teeth} teeth at ${spec.pressureAngle}° will be undercut (weak roots) below ${Math.ceil(zMin)} teeth. Add profile shift of at least ${Math.ceil(xMin * 100) / 100}, or use 25°.`,
-    })
+    const shift = autoProfileShift(spec)
+    const other = spec.pressureAngle < 25 ? autoProfileShift({ ...spec, pressureAngle: 25 }) : null
+    const fix = !shift.capped
+      ? `Add profile shift of at least ${shift.needed}${other && !other.capped ? ', or use 25°' : ''}.`
+      : `Profile shift can’t fully fix it at this tooth count without making the tips too narrow; ${shift.value} is the most they allow. ${other && !other.capped ? 'Use 25°, or more teeth.' : 'Use more teeth, or accept some undercut.'}`
+    issues.push({ code: 'undercut', level: 'warning', message: `Below ${Math.ceil(zMin)} teeth at ${spec.pressureAngle}° the roots are undercut (thinned by the mating tooth). ${fix}` })
   }
   const tipLand = 2 * dims.ra * flankAngle(dims, dims.ra)
-  if (!profile.error && tipLand < 0.25 * m) {
+  if (!profile.error && tipLand < MIN_TIP_LAND * m) {
     issues.push({ code: 'tip-narrow', level: 'warning', message: `The tooth tips are only ${L(tipLand)} wide and will chip in wood. Use less profile shift${spec.pressureAngle < 25 ? ', more teeth, or a 25° pressure angle' : ' or more teeth'}.` })
   }
   if (m < 2.5) {

@@ -110,7 +110,7 @@ export function GearPanel({ className }: { className?: string }) {
   const m = spec.module
   const inch = unit === 'in'
 
-  const suggestedShift = autoProfileShift(spec.teeth, spec.pressureAngle)
+  const suggestedShift = autoProfileShift(spec)
   const blade = BLADES.find((b) => Math.abs(b.value - doc.cutting.toolRadius) < 1e-6)
 
   return (
@@ -225,8 +225,13 @@ export function GearPanel({ className }: { className?: string }) {
             htmlFor="shift"
             hint={
               <>
-                {suggestedShift > 0 ? `${r2(suggestedShift)} avoids undercut at ${spec.teeth} teeth` : 'Not needed at this tooth count'} ·{' '}
-                <button className={styles.link} onClick={() => set({ profileShift: suggestedShift })}>
+                {suggestedShift.needed === 0
+                  ? 'Not needed at this tooth count'
+                  : suggestedShift.capped
+                    ? `${r2(suggestedShift.needed)} would avoid undercut, but the tips would be too narrow. ${r2(suggestedShift.value)} is the most they allow`
+                    : `${r2(suggestedShift.value)} avoids undercut at ${spec.teeth} teeth`}{' '}
+                ·{' '}
+                <button className={styles.link} onClick={() => set({ profileShift: suggestedShift.value })}>
                   auto
                 </button>
               </>

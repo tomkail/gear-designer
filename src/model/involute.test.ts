@@ -170,9 +170,11 @@ describe('tooth profile', () => {
     expect(flankAngle(d, d.rb)).toBeCloseTo(d.psiB)
   })
 
-  it('reports teeth that come to a point', () => {
+  it('reports teeth that come to a point, and still draws them cut off at the point', () => {
     const profile = toothProfile({ ...BASE, teeth: 8, profileShift: 1 })
     expect(profile.error).toMatch(/point/)
+    checkContinuous(gearOutline(profile), true)
+    expect(profile.dims.ra).toBeLessThan(dimensions({ ...BASE, teeth: 8, profileShift: 1 }).ra)
   })
 
   it('puts the drilled hole bottom on the root circle at the ideal size', () => {
