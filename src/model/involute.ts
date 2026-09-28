@@ -308,20 +308,23 @@ export interface ToothProfile {
   half: Path
   /** One tooth pitch, from gap centreline −γ to +γ */
   tooth: Path
-  /** Why the profile couldn't be built */
+  /** Why the profile couldn't be built (or, for pointed teeth, why it's cut off) */
   error: string | null
+  errorKind: ProfileErrorKind | null
 }
+
+export type ProfileErrorKind = 'backlash' | 'pointed' | 'root-hole' | 'overlap'
 
 export function toothProfile(input: ToothInput): ToothProfile {
   let d = dimensions(input)
-  const fail = (error: string): ToothProfile => ({ dims: d, tip: null, root: null, rootKind: input.root.kind, half: { start: polar(d.ra, 0), segments: [] }, tooth: { start: polar(d.ra, 0), segments: [] }, error })
+  const fail = (error: string, errorKind: ProfileErrorKind): ToothProfile => ({ dims: d, tip: null, root: null, rootKind: input.root.kind, half: { start: polar(d.ra, 0), segments: [] }, tooth: { start: polar(d.ra, 0), segments: [] }, error, errorKind })
 
-  if (d.s <= 0) return fail('The backlash is larger than the tooth, so there’s nothing left.')
+  if (d.s <= 0) return fail('The backlash is larger than the tooth, so there’s nothing left.', 'backlash')
   // Teeth that come to a point are still drawn, cut off where the flanks meet, so the problem is visible
   let pointed: string | null = null
   if (flankAngle(d, d.ra) <= 0) {
     const tipAt = bisect((rho) => flankAngle(d, rho), Math.max(d.rb, d.rf), d.ra)
-    if (tipAt === null) return fail('The teeth come to a point below the root. Use less profile shift, or more teeth.')
+    if (tipAt === null) return fail('The teeth come to a point below the root. Use less profile shift, or more teeth.', 'pointed')
     d = { ...d, ra: tipAt }
     pointed = 'The teeth come to a point before the tip circle. Use less profile shift, or more teeth.'
   }
@@ -332,7 +335,7 @@ export function toothProfile(input: ToothInput): ToothProfile {
   let root: ToothProfile['root'] = null
   if (input.root.kind === 'drill') {
     root = drillCorner(d, input.root.diameter)
-    if (!root) return fail('The root hole is too big to fit between the flanks.')
+    if (!root) return fail('The root hole is too big to fit between the flanks.', 'root-hole')
   } else {
     const fillet = rootFilletCorner(d, Math.min(input.root.radius, maxRootFillet(d)))
     root = fillet ? { ...fillet, bottom: d.rf } : null
@@ -340,7 +343,7 @@ export function toothProfile(input: ToothInput): ToothProfile {
 
   const rhoTip = tip?.rho ?? d.ra
   const rhoRoot = root?.rho ?? d.rf
-  if (rhoRoot >= rhoTip) return fail('The tip and root rounding overlap, so there’s no straight flank left. Reduce the rounding.')
+  if (rhoRoot >= rhoTip) return fail('The tip and root rounding overlap, so there’s no straight flank left. Reduce the rounding.', 'overlap')
 
   // Upper half, tip → gap centreline
   const segments: Segment[] = []
@@ -368,7 +371,7 @@ export function toothProfile(input: ToothInput): ToothProfile {
   const half: Path = { start: polar(d.ra, 0), segments }
   const lower = reversePath(mirrorPath(half))
   const tooth: Path = { start: lower.start, segments: [...lower.segments, ...half.segments] }
-  return { dims: d, tip, root, rootKind: input.root.kind, half, tooth, error: pointed }
+  return { dims: d, tip, root, rootKind: input.root.kind, half, tooth, error: pointed, errorKind: pointed ? 'pointed' : null }
 }
 
 /** The whole gear: every tooth, rotated round from tooth 0 */

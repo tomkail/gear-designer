@@ -111,6 +111,55 @@ describe('stub teeth', () => {
   })
 })
 
+describe('check messages', () => {
+  // A spread of broken designs that between them trip every per-gear check
+  const broken: Partial<GearSpec>[] = [
+    { teeth: 8, profileShift: 0.54 },
+    { teeth: 10, profileShift: 0.5 },
+    { teeth: 12 },
+    { module: 2 },
+    { teeth: 7 },
+    { tipRound: 1 },
+    { drillDiameter: 8 },
+    { drillDiameter: 6 },
+    { module: 0.8, teeth: 30 },
+    { root: 'fillet', rootFillet: 0.1 },
+    { backlash: 7 },
+    { bore: { ...DEFAULT_GEAR.bore, diameter: 60 } },
+    { bore: { ...DEFAULT_GEAR.bore, diameter: 70 } },
+    { bore: { ...DEFAULT_GEAR.bore, type: 'key', diameter: 58, keyDepth: 3 } },
+  ]
+  const all = broken.flatMap((changes) => computeGear({ ...DEFAULT_GEAR, ...changes }, { method: 'scroll', toolRadius: 3 }, 'mm').issues)
+
+  it('covers the checks', () => {
+    const found = new Set(all.map((i) => i.code))
+    for (const code of ['profile', 'tip-narrow', 'undercut', 'small-teeth', 'few-teeth', 'tip-max', 'clearance', 'drill-small', 'blade-radius', 'bore', 'bore-wall']) expect(found, code).toContain(code)
+  })
+
+  it('never assumes the material', () => {
+    for (const issue of all) expect(issue.message).not.toMatch(/wood|plywood|timber/i)
+  })
+
+  it('always says what to change', () => {
+    for (const issue of all.filter((i) => i.level !== 'info')) expect(issue.message, issue.code).toMatch(/\b(Set|set|Use|use|Reduce|Choose|Add|add)\b/)
+  })
+
+  it('gives a bore size and tooth count that fix a thin wall', () => {
+    const message = compute({ bore: { ...DEFAULT_GEAR.bore, diameter: 60 } }).issues.find((i) => i.code === 'bore-wall')!.message
+    const bore = parseFloat(message.match(/Set Bore Ø to ([\d.]+)/)![1])
+    const teeth = parseInt(message.match(/add (\d+) teeth?/)![1], 10)
+    expect(codes({ bore: { ...DEFAULT_GEAR.bore, diameter: bore } })).not.toContain('bore-wall')
+    expect(codes({ teeth: 20 + teeth, bore: { ...DEFAULT_GEAR.bore, diameter: 60 } })).not.toContain('bore-wall')
+    expect(codes({ teeth: 20 + teeth - 1, bore: { ...DEFAULT_GEAR.bore, diameter: 60 } })).toContain('bore-wall')
+  })
+
+  it('gives a profile shift that fixes narrow tips', () => {
+    const message = compute({ teeth: 14, profileShift: 0.6 }).issues.find((i) => i.code === 'tip-narrow')!.message
+    const x = parseFloat(message.match(/Profile shift to (-?[\d.]+)/)![1])
+    expect(codes({ teeth: 14, profileShift: x })).not.toContain('tip-narrow')
+  })
+})
+
 describe('units and parsing', () => {
   it('converts between module and diametral pitch', () => {
     expect(moduleToDp(25.4)).toBe(1)

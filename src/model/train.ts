@@ -122,7 +122,9 @@ export function computeDoc(doc: GearDoc, unit: LengthUnit): DocGeometry {
     const raA = A.profile.tip?.rho ?? A.dims.ra
     const raB = B.profile.tip?.rho ?? B.dims.ra
     const eps = contactRatio(raA, A.dims.rb, raB, B.dims.rb, a, alphaW, m, alpha)
-    const tipClearance = Math.min(a - A.dims.ra - B.stats.rootDiameter / 2, a - B.dims.ra - A.stats.rootDiameter / 2)
+    const clearanceAB = a - A.dims.ra - B.stats.rootDiameter / 2
+    const clearanceBA = a - B.dims.ra - A.stats.rootDiameter / 2
+    const tipClearance = Math.min(clearanceAB, clearanceBA)
 
     // Things that lengthen the contact: taller teeth, a lower pressure angle, less rounding off the tips
     const remedies = ['more teeth', 'less tip rounding', ...(A.spec.pressureAngle > 20 ? ['20°'] : []), ...(A.spec.toothForm === 'stub' ? ['full-depth teeth'] : [])]
@@ -130,10 +132,17 @@ export function computeDoc(doc: GearDoc, unit: LengthUnit): DocGeometry {
     if (eps < 1.2) {
       issues.push({ code: 'contact', level: 'warning', message: `The contact ratio is only ${num(eps)}, so the gears will knock as each tooth hands over to the next. Try ${remedyText}.` })
     } else if (eps < 1.4) {
-      issues.push({ code: 'contact-low', level: 'info', message: `Contact ratio ${num(eps)}. Wooden gears run more smoothly at 1.4 or more.` })
+      issues.push({ code: 'contact-low', level: 'info', message: `Contact ratio ${num(eps)}. Gears run more smoothly at 1.4 or more; try ${remedyText}.` })
     }
     if (tipClearance < 0.1 * m) {
-      issues.push({ code: 'tip-clearance', level: tipClearance <= 0 ? 'error' : 'warning', message: `Only ${L(tipClearance)} between a tooth tip and the other gear’s root. Reduce the profile shift.` })
+      // Name the gear whose tips come too close, since its shift (or tooth depth) is what to change
+      const [tipGear, rootGear] = clearanceAB <= clearanceBA ? [ia, ib] : [ib, ia]
+      const T = gearLetter(tipGear)
+      issues.push({
+        code: 'tip-clearance',
+        level: tipClearance <= 0 ? 'error' : 'warning',
+        message: `Gear ${T}’s tips come within ${L(tipClearance)} of gear ${gearLetter(rootGear)}’s roots; leave at least ${L(0.1 * m)} (0.1 × module). Reduce gear ${T}’s Profile shift.`,
+      })
     }
 
     meshes.push({
