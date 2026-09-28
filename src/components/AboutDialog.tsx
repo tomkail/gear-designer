@@ -8,6 +8,8 @@ const SHORTCUTS: [string, string][] = [
   [`${modKey}S / ${modKey}O`, 'Save / open design file'],
   [`${modKey}E`, 'Download SVG'],
   ['[ / ]', 'Fewer / more teeth'],
+  ['P', 'Turn the gears / pause'],
+  ['G', 'Edit the other gear'],
   ['F', 'Fit to view'],
   ['1', 'Actual size (1:1)'],
   ['M', 'Dimensions'],
@@ -24,6 +26,11 @@ export function AboutDialog() {
       <p>
         Gear Designer draws true involute spur gears with woodworking defaults: big teeth, generous clearance and rounded corners. Set the number of teeth and the tooth size, then print a 1:1 template to stick
         on your stock.
+      </p>
+      <h3>Meshing pairs</h3>
+      <p>
+        Add a mating gear and it’s placed at the right axle spacing, turned so its teeth fall between the first gear’s. Press play to watch them turn at their true speeds. The template prints both gears for
+        cutting, plus an axle-spacing gauge for drilling the frame.
       </p>
       <h3>Tooth size</h3>
       <p>

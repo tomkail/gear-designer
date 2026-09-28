@@ -1,6 +1,6 @@
 import { resolveScreenScale, downloadBlob, drawingToDxf, drawingToSvg, drawingsToPdf, notify, pickTextFile, printDrawings } from '@tomkail/workshop-kit'
 import { DEFAULT_DOC, docToQuery, normaliseDoc, type GearDoc } from './model/design'
-import { kindOf } from './model/kinds'
+import { computeDoc, docBounds } from './model/train'
 import { buildGearDrawing, buildPages } from './model/template'
 import { designHistory, useDesignStore } from './stores/designStore'
 import { useSettingsStore, useUiStore, useViewportStore } from './stores/settingsStore'
@@ -11,16 +11,14 @@ export const canvasSize = { width: 0, height: 0 }
 const current = () => {
   const doc = useDesignStore.getState().doc
   const settings = useSettingsStore.getState()
-  const spec = doc.gears[0]
-  return { doc, geometry: kindOf(spec).compute(spec, doc.cutting, settings.unit), settings }
+  return { doc, geometry: computeDoc(doc, settings.unit), settings }
 }
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'gear'
 
 export function fitView() {
   const { geometry } = current()
-  const r = geometry.dims.ra + 4
-  useViewportStore.getState().fitToRect({ x: -r, y: -r, width: r * 2, height: r * 2 }, canvasSize.width, canvasSize.height)
+  useViewportStore.getState().fitToRect(docBounds(geometry, 4), canvasSize.width, canvasSize.height)
 }
 
 /** Zoom so 1 mm on screen is 1 mm in real life (using the calibrated px/mm) */
@@ -32,17 +30,20 @@ export function actualSize() {
     useUiStore.getState().setDialog('calibrate')
     return
   }
-  useViewportStore.getState().centerOn({ x: 0, y: 0 }, canvasSize.width, canvasSize.height, scale.pxPerMm)
+  const b = docBounds(current().geometry)
+  useViewportStore.getState().centerOn({ x: b.x + b.width / 2, y: b.y + b.height / 2 }, canvasSize.width, canvasSize.height, scale.pxPerMm)
   notify.info(`Actual size, using ${scale.label}. Not right? Settings → Calibrate screen.`)
 }
 
 export function newDesign() {
   useDesignStore.getState().load(DEFAULT_DOC)
+  useUiStore.getState().select(0)
   requestAnimationFrame(fitView)
 }
 
 export function loadDesign(doc: GearDoc) {
   useDesignStore.getState().load(doc)
+  useUiStore.getState().select(0)
   designHistory.flush()
   requestAnimationFrame(fitView)
 }
@@ -91,7 +92,7 @@ function warnIfInvalid(): boolean {
   return geometry.valid
 }
 
-/** Just the gear at 1:1 on a tight artboard */
+/** The gears at 1:1 on a tight artboard */
 export function exportGearSvg() {
   const { doc, geometry, settings } = current()
   warnIfInvalid()
@@ -99,7 +100,7 @@ export function exportGearSvg() {
   downloadBlob(drawingToSvg(drawing, { title: doc.name }), `${slug(doc.name)}.svg`, 'image/svg+xml')
 }
 
-/** Outline, root holes and bore for CAD / CNC / laser, no construction or text */
+/** Outlines, root holes, bores and axle gauge for CAD / CNC / laser, no construction or text */
 export function exportDxf() {
   const { doc, geometry, settings } = current()
   warnIfInvalid()
@@ -122,4 +123,22 @@ export function printPage() {
   const { doc } = current()
   warnIfInvalid()
   return printDrawings(buildCurrentPages(), doc.name)
+}
+
+export function addMatingGear() {
+  useDesignStore.getState().addGear()
+  useUiStore.getState().select(useDesignStore.getState().doc.gears.length - 1)
+  requestAnimationFrame(fitView)
+}
+
+export function removeGear(index: number) {
+  useDesignStore.getState().removeGear(index)
+  useUiStore.getState().select(0)
+  useUiStore.getState().setPlaying(false)
+  requestAnimationFrame(fitView)
+}
+
+export function togglePlaying() {
+  const ui = useUiStore.getState()
+  ui.setPlaying(!ui.playing)
 }

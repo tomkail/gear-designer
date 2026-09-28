@@ -9,12 +9,14 @@ import {
   type DrawItem,
   type Drawing,
   type LengthUnit,
+  type PageContent,
   type PageSetup,
   type StrokeStyle,
   type Vec,
 } from '@tomkail/workshop-kit'
 import type { GearDoc, GearSpec } from './design'
 import type { GearGeometry } from './gear'
+import { gearLetter, type DocGeometry, type MeshInfo } from './train'
 
 /**
  * Printable template. Everything here is in real millimetres; the same
@@ -96,6 +98,23 @@ export function specLines(spec: GearSpec, g: GearGeometry, unit: LengthUnit): st
   return lines
 }
 
+/** One line about the pair: ratio, axle spacing and contact ratio */
+export function meshLine(mesh: MeshInfo, geo: DocGeometry, unit: LengthUnit): string {
+  const A = geo.gears[mesh.a].spec
+  const B = geo.gears[mesh.b].spec
+  return `${gearLetter(mesh.a)} (${A.teeth} teeth) drives ${gearLetter(mesh.b)} (${B.teeth} teeth): ratio 1 : ${r2(mesh.ratio)} · axle spacing ${len(mesh.centreDistance, unit)} · contact ratio ${mesh.contactRatio.toFixed(2)}`
+}
+
+/** Spec lines for the whole document: each gear, prefixed with its letter when there's a pair */
+export function docSpecLines(geo: DocGeometry, unit: LengthUnit): string[] {
+  if (geo.gears.length === 1) return specLines(geo.gears[0].spec, geo.gears[0], unit)
+  const lines = geo.meshes.map((mesh) => meshLine(mesh, geo, unit))
+  geo.gears.forEach((g, i) => {
+    specLines(g.spec, g, unit).forEach((line, j) => lines.push(j === 0 ? `${gearLetter(i)}: ${line}` : `    ${line}`))
+  })
+  return lines
+}
+
 export function workflowLines(spec: GearSpec): string[] {
   return spec.root === 'drill'
     ? [
@@ -168,25 +187,76 @@ export function gearItems(g: GearGeometry, options: Pick<TemplateOptions, 'const
 }
 
 // ---------------------------------------------------------------------------
-// Single gear artboard (SVG / DXF export)
+// Layout: gears side by side for cutting, plus an axle-spacing gauge for a pair
+// ---------------------------------------------------------------------------
+
+const GAP = 8
+
+function axleGauge(mesh: MeshInfo, at: Vec, unit: LengthUnit, labels: boolean): DrawItem[] {
+  const a = { x: at.x, y: at.y }
+  const b = { x: at.x + mesh.centreDistance, y: at.y }
+  const items: DrawItem[] = [{ kind: 'line', from: a, to: b, style: STYLES.mark }, ...crosshair(a, 4, STYLES.mark), ...crosshair(b, 4, STYLES.mark)]
+  items.push({ kind: 'circle', center: a, radius: 1.5, style: STYLES.mark }, { kind: 'circle', center: b, radius: 1.5, style: STYLES.mark })
+  if (labels) {
+    items.push({
+      kind: 'text',
+      at: { x: (a.x + b.x) / 2, y: at.y - 2 },
+      text: `Axle spacing ${gearLetter(mesh.a)}–${gearLetter(mesh.b)}: ${len(mesh.centreDistance, unit)} between centres`,
+      size: 2.6,
+      align: 'middle',
+      layer: 'labels',
+    })
+  }
+  return items
+}
+
+/** Everything to cut, laid out left to right in mm, with its bounds */
+export function layoutContent(geo: DocGeometry, options: TemplateOptions): PageContent {
+  const items: DrawItem[] = []
+  const pair = geo.gears.length > 1
+  const maxR = Math.max(...geo.gears.map((g) => g.dims.ra + 1.5))
+  const labelRow = options.labels && pair ? 7 : 0
+  let x = 0
+  geo.gears.forEach((g, i) => {
+    const r = g.dims.ra + 1.5
+    const cx = x + r
+    items.push(...translateItems(gearItems(g, options), cx, 0))
+    if (labelRow) {
+      const mates = geo.meshes.filter((m) => m.a === i || m.b === i).map((m) => (m.a === i ? m.b : m.a))
+      const text = `${gearLetter(i)} · ${g.spec.teeth} teeth${mates.map((j) => ` · meshes with ${gearLetter(j)} (${geo.gears[j].spec.teeth} teeth)`).join('')}`
+      items.push({ kind: 'text', at: { x: cx, y: maxR + 5 }, text, size: 2.8, bold: true, align: 'middle', layer: 'labels' })
+    }
+    x += 2 * r + GAP
+  })
+  let bottom = maxR + labelRow
+  for (const mesh of geo.meshes) {
+    bottom += options.labels ? 10 : 6
+    items.push(...axleGauge(mesh, { x: 4, y: bottom }, options.unit, options.labels))
+    bottom += 4
+  }
+  const width = Math.max(x - GAP, ...geo.meshes.map((m) => m.centreDistance + 8))
+  return { items, bounds: { x: 0, y: -maxR, width, height: bottom + maxR } }
+}
+
+// ---------------------------------------------------------------------------
+// Artboard (SVG / DXF export)
 // ---------------------------------------------------------------------------
 
 const TEXT_SIZE = 2.8
 const LINE_GAP = 4.2
 
-export function buildGearDrawing(doc: GearDoc, g: GearGeometry, options: TemplateOptions): Drawing {
+export function buildGearDrawing(doc: GearDoc, geo: DocGeometry, options: TemplateOptions): Drawing {
   const margin = 5
-  const extent = g.dims.ra + 1
-  const lines = options.labels ? [doc.name, ...specLines(g.spec, g, options.unit)] : []
+  const content = layoutContent(geo, options)
+  const { bounds } = content
+  const lines = options.labels ? [doc.name, ...geo.meshes.map((m) => meshLine(m, geo, options.unit)), ...(geo.gears.length === 1 ? specLines(geo.gears[0].spec, geo.gears[0], options.unit) : [])] : []
   const textWidth = Math.max(0, ...lines.map((l, i) => textWidthMm(l, i === 0 ? 3.4 : TEXT_SIZE, i === 0)))
-  const width = Math.max(extent * 2, textWidth) + margin * 2
+  const width = Math.max(bounds.width, textWidth) + margin * 2
   const labelHeight = lines.length ? lines.length * LINE_GAP + 3 : 0
-  const height = extent * 2 + margin * 2 + labelHeight
-  const center = { x: width / 2, y: margin + extent }
-
-  const items = translateItems(gearItems(g, options), center.x, center.y)
+  const height = bounds.height + margin * 2 + labelHeight
+  const items = translateItems(content.items, margin - bounds.x + (width - margin * 2 - bounds.width) / 2, margin - bounds.y)
   lines.forEach((text, i) => {
-    items.push({ kind: 'text', at: { x: width / 2, y: margin + extent * 2 + 5 + i * LINE_GAP }, text, size: i === 0 ? 3.4 : TEXT_SIZE, bold: i === 0, align: 'middle', layer: 'labels' })
+    items.push({ kind: 'text', at: { x: width / 2, y: margin + bounds.height + 5 + i * LINE_GAP }, text, size: i === 0 ? 3.4 : TEXT_SIZE, bold: i === 0, align: 'middle', layer: 'labels' })
   })
   return { width: round(width), height: round(height), items }
 }
@@ -194,20 +264,20 @@ export function buildGearDrawing(doc: GearDoc, g: GearGeometry, options: Templat
 const round = (v: number) => Math.round(v * 100) / 100
 
 // ---------------------------------------------------------------------------
-// Printable pages: one sheet, or tiled when the gear is too big
+// Printable pages: one sheet, or tiled when the gears are too big
 // ---------------------------------------------------------------------------
 
-function pageSetup(doc: GearDoc, g: GearGeometry, options: PageOptions): PageSetup {
+function pageSetup(doc: GearDoc, geo: DocGeometry, options: PageOptions): PageSetup {
+  const notes = workflowLines(geo.gears[0].spec)
+  if (geo.meshes.length) notes.push('5. Drill the axle holes in the frame at the spacing on the gauge, then check the gears turn freely before gluing anything.')
   return {
     paperId: options.paperId,
     landscape: options.landscape,
     scaleCheck: options.scaleCheck,
-    header: options.labels ? { title: doc.name, tag: 'Gear Designer template · 1:1', lines: specLines(g.spec, g, options.unit), notes: workflowLines(g.spec) } : undefined,
+    header: options.labels ? { title: doc.name, tag: 'Gear Designer template · 1:1', lines: docSpecLines(geo, options.unit), notes } : undefined,
   }
 }
 
-export function buildPages(doc: GearDoc, g: GearGeometry, options: PageOptions): ComposedPage[] {
-  const extent = g.dims.ra + 1.5
-  const content = { items: gearItems(g, options), bounds: { x: -extent, y: -extent, width: extent * 2, height: extent * 2 } }
-  return layoutPages(content, pageSetup(doc, g, options), { mode: 'physical', mmPerUnit: 1 })
+export function buildPages(doc: GearDoc, geo: DocGeometry, options: PageOptions): ComposedPage[] {
+  return layoutPages(layoutContent(geo, options), pageSetup(doc, geo, options), { mode: 'physical', mmPerUnit: 1 })
 }

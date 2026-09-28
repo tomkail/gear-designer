@@ -83,8 +83,8 @@ When gear 1 has a tooth pointing along the line of centres, gear 2 has a gap the
 - [x] Canvas: the gear with pitch, base, tip and root circles drawn as construction lines, dimension labels, and draggable handles for tooth count and size.
 - [x] Root drilling marks: a drill centre and bit size for every tooth gap, snapped to standard bits.
 - [x] Blade setting for scroll saw or bandsaw (smallest turning radius), which drives the tip and root rounding checks.
-- [ ] **Meshing pair:** a second gear with its own tooth count on the same module. It sits at the correct centre distance and phase, and both animate at their true speeds. Show the ratio, centre distance and contact ratio, and include the axle spacing on the printed template.
-- [x] Output through workshop-kit ("meshes with …" labels wait for the pair): 1:1 print with rulers, tiling for big gears, PDF, SVG and DXF. Labels give tooth count, module, pitch diameter, bore, and "meshes with …" when the gear is in a train.
+- [x] **Meshing pair:** a second gear with its own tooth count on the same module. It sits at the correct centre distance and phase, and both animate at their true speeds. Show the ratio, centre distance and contact ratio, and include the axle spacing on the printed template.
+- [x] Output through workshop-kit: 1:1 print with rulers, tiling for big gears, PDF, SVG and DXF. Labels give tooth count, module, pitch diameter, bore, and "meshes with …" when the gear is in a train.
 - [x] Undo/redo, autosave, save/open files, and a share URL.
 
 ### M2 — Trains (the geargenerator experience)
@@ -193,14 +193,19 @@ interface TrainDoc {
 
 ## Built so far
 
-The M1 scaffold, involute geometry and a single spur gear are done (28 tests). Decisions made along the way:
+M1 is done apart from spokes, lightening holes and the hub circle (42 tests). Decisions made along the way:
 
 - **Drilled roots.** Each root hole sits on the gap centreline, tangent to both flanks. The auto bit is the largest standard size in the user's unit whose hole reaches the root circle, so the gap is never shallower than standard. The check flags a chosen bit that leaves less than 0.15 × module of tip clearance.
 - **Below the base circle** the flank is a radial line. There's no trochoid yet; undercut is flagged by the z_min rule instead.
 - **Backlash** thins each tooth by the set amount at the pitch circle, so a pair's play is the sum of both gears' settings.
-- **The document** is already a list of gears (`GearDoc.gears`), so the pair and trains won't need a format change. Links, driver and RPM are added with the pair.
+- **The document** is a list of gears plus mesh links (`GearDoc.links`, each with the direction from `a` to `b`). The first gear drives at `driverRpm`. For now every gear meshes with the first and there are at most two (`MAX_GEARS`); M2 lifts that.
+- **Shared parameters.** Meshed gears share module and pressure angle; editing either gear edits both, and `normaliseDoc` enforces it.
+- **Placement** lives in `src/model/train.ts`: working pressure angle and centre distance with profile shift, the phase formula, speeds, contact ratio (using the tip-fillet radius as the effective tip) and tip-to-root clearance. The overlap test steps each test pair through a tooth pitch and checks no sampled point of one outline falls inside the other.
+- **The template** lays the gears out side by side for cutting, each labelled with what it meshes with, plus an axle-spacing gauge (two crosshairs one centre distance apart) for drilling the frame. The canvas shows them in mesh.
 - **`GearKind`** (`src/model/kinds.ts`) holds compute, pitch radius and mesh compatibility. Panels are chosen by kind id in the components rather than living in the model.
 
 ## Next step
 
-Add the meshing pair: a second gear on the same module at the correct centre distance and phase, both animating, with ratio, centre distance and contact ratio in the panel and axle spacing on the template. Then spokes and lightening holes.
+Finish M1 with spokes, lightening holes and the hub circle. Then M2: more than two gears, snapping into mesh when dragged near another, and compound axles.
+
+A small pair (12 and 30 teeth at module 4) already needs two A4 sheets because the gears sit side by side. A tighter packing (the smaller gear beside or inside the larger one's bounding box) would save paper.

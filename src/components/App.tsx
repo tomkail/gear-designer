@@ -9,7 +9,7 @@ import { AboutDialog } from './AboutDialog'
 import { designHistory, useDesignStore } from '../stores/designStore'
 import { useSettingsStore, useThemeStore, useUiStore } from '../stores/settingsStore'
 import { clampTeeth, docFromQuery, docToQuery } from '../model/design'
-import { actualSize, exportGearSvg, fitView, loadDesign, openDesign, saveDesign } from '../actions'
+import { actualSize, exportGearSvg, fitView, loadDesign, openDesign, saveDesign, togglePlaying } from '../actions'
 import styles from './App.module.css'
 
 /** Load a design from the URL hash on startup, and keep the hash in sync so the URL is always shareable */
@@ -43,7 +43,8 @@ export default function App() {
   const settings = () => useSettingsStore.getState()
   const bumpTeeth = (delta: number) => {
     const { doc, updateGear } = useDesignStore.getState()
-    updateGear({ teeth: clampTeeth(doc.gears[0].teeth + delta) })
+    const i = Math.min(useUiStore.getState().selected, doc.gears.length - 1)
+    updateGear({ teeth: clampTeeth(doc.gears[i].teeth + delta) }, i)
   }
 
   useHotkeys({
@@ -60,6 +61,12 @@ export default function App() {
     c: () => settings().set({ showConstruction: !settings().showConstruction }),
     s: () => settings().set({ snap: !settings().snap }),
     u: () => settings().set({ unit: settings().unit === 'mm' ? 'in' : 'mm' }),
+    p: togglePlaying,
+    g: () => {
+      const { doc } = useDesignStore.getState()
+      const ui = useUiStore.getState()
+      if (doc.gears.length > 1) ui.select((ui.selected + 1) % doc.gears.length)
+    },
     '[': () => bumpTeeth(-1),
     ']': () => bumpTeeth(1),
     '?': () => setDialog('about'),

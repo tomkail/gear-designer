@@ -72,3 +72,30 @@
   padding-left: 10px;
   border-left: 2px solid var(--panel-border);
 }
+
+.gearRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.gearRow > :first-child {
+  width: 100%;
+}
+
+.addGear {
+  width: 100%;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--accent-color);
+  border: 1px dashed var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+}
+
+.addGear:hover {
+  border-color: var(--accent-color);
+  background: var(--panel-item-bg);
+}

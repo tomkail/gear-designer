@@ -18,11 +18,12 @@ import {
   type LengthUnit,
 } from '@tomkail/workshop-kit'
 import { useDesignStore } from '../stores/designStore'
-import { useSettingsStore } from '../stores/settingsStore'
-import { BLADES, MAX_MODULE, MAX_TEETH, MIN_MODULE, MIN_TEETH, TOOTH_SIZES, moduleToDp, parseToothSize, type BoreType, type GearSpec, type RootMode } from '../model/design'
+import { useSettingsStore, useUiStore } from '../stores/settingsStore'
+import { BLADES, MAX_GEARS, MAX_MODULE, MAX_TEETH, MIN_MODULE, MIN_TEETH, TOOTH_SIZES, moduleToDp, parseToothSize, type BoreType, type GearSpec, type RootMode } from '../model/design'
 import { autoProfileShift } from '../model/gear'
-import { kindOf } from '../model/kinds'
-import { bitSize, len, specLines } from '../model/template'
+import { computeDoc, gearLetter } from '../model/train'
+import { bitSize, docSpecLines, len } from '../model/template'
+import { addMatingGear, removeGear } from '../actions'
 import styles from './GearPanel.module.css'
 
 interface LengthFieldProps {
@@ -94,11 +95,18 @@ export function GearPanel({ className }: { className?: string }) {
   const updateCutting = useDesignStore((s) => s.updateCutting)
   const unit = useSettingsStore((s) => s.unit)
   const setSettings = useSettingsStore((s) => s.set)
+  const selected = Math.min(useUiStore((s) => s.selected), doc.gears.length - 1)
+  const select = useUiStore((s) => s.select)
 
-  const spec = doc.gears[0]
-  const g = useMemo(() => kindOf(spec).compute(spec, doc.cutting, unit), [spec, doc.cutting, unit])
-  const errorCodes = new Set(g.issues.filter((i) => i.level !== 'info').map((i) => i.code))
-  const set = (changes: Partial<GearSpec>) => updateGear(changes)
+  const geo = useMemo(() => computeDoc(doc, unit), [doc, unit])
+  const spec = doc.gears[selected]
+  const g = geo.gears[selected]
+  const pair = doc.gears.length > 1
+  const mesh = geo.meshes[0]
+  const issues = [...g.issues, ...geo.meshes.flatMap((m) => m.issues)]
+  const errorCodes = new Set(issues.filter((i) => i.level !== 'info').map((i) => i.code))
+  const set = (changes: Partial<GearSpec>) => updateGear(changes, selected)
+  const setBore = (changes: Partial<GearSpec['bore']>) => updateBore(changes, selected)
   const m = spec.module
   const inch = unit === 'in'
 
@@ -107,7 +115,7 @@ export function GearPanel({ className }: { className?: string }) {
 
   return (
     <Panel className={className}>
-      <PanelHeader title="Spur gear">
+      <PanelHeader title={pair ? 'Gear pair' : 'Spur gear'}>
         <Segmented<LengthUnit>
           value={unit}
           onChange={(u) => setSettings({ unit: u })}
@@ -120,9 +128,50 @@ export function GearPanel({ className }: { className?: string }) {
       <PanelBody>
         <PanelSection>
           <input className={styles.name} value={doc.name} onChange={(e) => update({ name: e.target.value })} aria-label="Design name" placeholder="Name this gear" />
+          {pair ? (
+            <div className={styles.gearRow}>
+              <Segmented<number> value={selected} onChange={select} options={doc.gears.map((gear, i) => ({ value: i, label: `${gearLetter(i)} · ${gear.teeth} teeth`, title: i === 0 ? 'The driving gear' : 'Driven gear' }))} />
+              {selected > 0 && (
+                <button className={styles.link} onClick={() => removeGear(selected)}>
+                  Remove {gearLetter(selected)}
+                </button>
+              )}
+            </div>
+          ) : (
+            doc.gears.length < MAX_GEARS && (
+              <button className={styles.addGear} onClick={addMatingGear}>
+                + Add a mating gear
+              </button>
+            )
+          )}
         </PanelSection>
 
-        <PanelSection title="Teeth">
+        {pair && mesh && (
+          <PanelSection title="Pair">
+            <Stat label="Ratio" value={`1 : ${r2(mesh.ratio)}`} />
+            <p className={styles.explain}>
+              {mesh.ratio === 1
+                ? 'Both gears turn at the same speed, in opposite directions.'
+                : mesh.ratio > 1
+                  ? `A turns ${r2(mesh.ratio)} times for each turn of B. B turns slower, with more force.`
+                  : `B turns ${r2(1 / mesh.ratio)} times for each turn of A. B turns faster, with less force.`}
+            </p>
+            <Stat label="Axle spacing" value={len(mesh.centreDistance, unit)} />
+            {Math.abs(mesh.centreDistance - mesh.standardDistance) > 1e-6 && <Stat label="Without profile shift" value={len(mesh.standardDistance, unit)} />}
+            <Stat label="Contact ratio" value={mesh.contactRatio.toFixed(2)} tone={mesh.contactRatio < 1.2 ? 'danger' : mesh.contactRatio < 1.4 ? 'warning' : undefined} />
+            <Stat label="Play between teeth" value={len(mesh.backlash, unit)} />
+            <Stat label="Tip clearance" value={len(mesh.tipClearance, unit)} tone={mesh.tipClearance < 0.1 * spec.module ? 'warning' : undefined} />
+            {Math.abs(mesh.workingAngle / (Math.PI / 180) - spec.pressureAngle) > 0.01 && <Stat label="Working pressure angle" value={`${r2(mesh.workingAngle / (Math.PI / 180))}°`} />}
+            <Field label="A turns at" htmlFor="rpm" hint={`B turns at ${r2(doc.driverRpm / mesh.ratio)} RPM, the opposite way. Press P to play.`}>
+              <NumberField id="rpm" value={doc.driverRpm} onChange={(v) => update({ driverRpm: v })} min={-600} max={600} step={1} suffix="RPM" format={r2} />
+            </Field>
+            <Field label="B sits at" htmlFor="meshAngle" hint="Direction from A to B. Or drag B’s centre round A on the canvas.">
+              <NumberField id="meshAngle" value={mesh.angle} onChange={(v) => useDesignStore.getState().setMeshAngle(mesh.b, v)} min={-180} max={180} step={15} suffix="°" format={r2} />
+            </Field>
+          </PanelSection>
+        )}
+
+        <PanelSection title={pair ? `Gear ${gearLetter(selected)}` : 'Teeth'}>
           <Field label="Number of teeth" htmlFor="teeth">
             <NumberField id="teeth" value={spec.teeth} onChange={(n) => set({ teeth: n })} min={MIN_TEETH} max={MAX_TEETH} step={1} slider sliderMax={80} format={(v) => String(Math.round(v))} />
           </Field>
@@ -131,6 +180,7 @@ export function GearPanel({ className }: { className?: string }) {
             htmlFor="size"
             hint={
               <>
+                {pair ? 'Shared by both gears. ' : ''}
                 {inch ? `Module ${r2(m)}` : `${r2(moduleToDp(m))} DP`} · teeth {len(g.stats.circularPitch, 'mm')} ({len(g.stats.circularPitch, 'in')}) apart on the pitch circle. Type “m4” or “6dp” to use either.
               </>
             }
@@ -229,7 +279,7 @@ export function GearPanel({ className }: { className?: string }) {
         <PanelSection title="Bore">
           <Segmented<BoreType>
             value={spec.bore.type}
-            onChange={(type) => updateBore({ type })}
+            onChange={(type) => setBore({ type })}
             options={[
               { value: 'none', label: 'None' },
               { value: 'round', label: 'Hole' },
@@ -237,14 +287,14 @@ export function GearPanel({ className }: { className?: string }) {
               { value: 'key', label: 'Keyway' },
             ]}
           />
-          {spec.bore.type !== 'none' && <LengthField id="boreD" label="Bore Ø" value={spec.bore.diameter} onChange={(v) => updateBore({ diameter: v })} unit={unit} min={0} bits invalid={errorCodes.has('bore') || errorCodes.has('bore-wall')} />}
+          {spec.bore.type !== 'none' && <LengthField id="boreD" label="Bore Ø" value={spec.bore.diameter} onChange={(v) => setBore({ diameter: v })} unit={unit} min={0} bits invalid={errorCodes.has('bore') || errorCodes.has('bore-wall')} />}
           {spec.bore.type === 'flat' && (
-            <LengthField id="flat" label="Across the flat" value={spec.bore.flatAcross} onChange={(v) => updateBore({ flatAcross: v })} unit={unit} min={0} hint="From the flat to the far side of the hole" />
+            <LengthField id="flat" label="Across the flat" value={spec.bore.flatAcross} onChange={(v) => setBore({ flatAcross: v })} unit={unit} min={0} hint="From the flat to the far side of the hole" />
           )}
           {spec.bore.type === 'key' && (
             <>
-              <LengthField id="keyW" label="Keyway width" value={spec.bore.keyWidth} onChange={(v) => updateBore({ keyWidth: v })} unit={unit} min={0} />
-              <LengthField id="keyD" label="Keyway depth" value={spec.bore.keyDepth} onChange={(v) => updateBore({ keyDepth: v })} unit={unit} min={0} hint="How far it cuts beyond the bore" />
+              <LengthField id="keyW" label="Keyway width" value={spec.bore.keyWidth} onChange={(v) => setBore({ keyWidth: v })} unit={unit} min={0} />
+              <LengthField id="keyD" label="Keyway depth" value={spec.bore.keyDepth} onChange={(v) => setBore({ keyDepth: v })} unit={unit} min={0} hint="How far it cuts beyond the bore" />
             </>
           )}
         </PanelSection>
@@ -263,16 +313,16 @@ export function GearPanel({ className }: { className?: string }) {
           <LengthField id="blade" label="Smallest turning radius" value={doc.cutting.toolRadius} onChange={(v) => updateCutting({ toolRadius: v })} unit={unit} min={0} />
         </PanelSection>
 
-        <PanelSection title={g.issues.length ? 'Checks' : 'Checks ✓'}>
-          {g.issues.length === 0 && <p className={styles.explain}>No problems found.</p>}
-          {g.issues.map((issue) => (
+        <PanelSection title={issues.length ? 'Checks' : 'Checks ✓'}>
+          {issues.length === 0 && <p className={styles.explain}>No problems found.</p>}
+          {issues.map((issue) => (
             <Callout key={issue.code} tone={issue.level === 'error' ? 'danger' : issue.level === 'warning' ? 'warning' : 'info'}>
               {issue.message}
             </Callout>
           ))}
         </PanelSection>
 
-        <PanelSection title="Measurements">
+        <PanelSection title={pair ? `Measurements · ${gearLetter(selected)}` : 'Measurements'}>
           <Stat label="Pitch Ø" value={len(g.stats.pitchDiameter, unit)} />
           <Stat label="Outside Ø" value={len(g.stats.outsideDiameter, unit)} />
           <Stat label="Root Ø" value={len(g.stats.rootDiameter, unit)} />
@@ -289,8 +339,8 @@ export function GearPanel({ className }: { className?: string }) {
 
         <PanelSection title="Template notes">
           <ul className={styles.spec}>
-            {specLines(spec, g, unit).map((line) => (
-              <li key={line}>{line}</li>
+            {docSpecLines(geo, unit).map((line, i) => (
+              <li key={i}>{line}</li>
             ))}
           </ul>
         </PanelSection>

@@ -173,7 +173,7 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
   }
   const tipLand = 2 * dims.ra * flankAngle(dims, dims.ra)
   if (!profile.error && tipLand < 0.25 * m) {
-    issues.push({ code: 'tip-narrow', level: 'warning', message: `The tooth tips are only ${L(tipLand)} wide and will chip in wood. Use less profile shift, more teeth, or a 25° pressure angle.` })
+    issues.push({ code: 'tip-narrow', level: 'warning', message: `The tooth tips are only ${L(tipLand)} wide and will chip in wood. Use less profile shift${spec.pressureAngle < 25 ? ', more teeth, or a 25° pressure angle' : ' or more teeth'}.` })
   }
   if (m < 2.5) {
     issues.push({ code: 'small-teeth', level: 'warning', message: `Module ${round2(m)} teeth are small for wood. Aim for module 3 or more (DP 8 or less).` })

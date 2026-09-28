@@ -62,7 +62,22 @@ export const useViewportStore = createViewportStore({
 
 export type Dialog = 'print' | 'calibrate' | 'about' | null
 
-export const useUiStore = create<{ dialog: Dialog; setDialog: (dialog: Dialog) => void }>()((set) => ({
+interface UiState {
+  dialog: Dialog
+  /** Index of the gear being edited */
+  selected: number
+  /** Animating the train */
+  playing: boolean
+  setDialog: (dialog: Dialog) => void
+  select: (index: number) => void
+  setPlaying: (playing: boolean) => void
+}
+
+export const useUiStore = create<UiState>()((set) => ({
   dialog: null,
+  selected: 0,
+  playing: false,
   setDialog: (dialog) => set({ dialog }),
+  select: (selected) => set({ selected }),
+  setPlaying: (playing) => set({ playing }),
 }))

@@ -13,7 +13,8 @@ The third of a family of woodworking tools, alongside [Serpentine](https://githu
 - Tooth size as module or diametral pitch (type `m4` or `6dp` in either unit), plus the tooth spacing in mm and inches, the size you can measure with a ruler.
 - Checks for undercut (with an "auto" profile shift), narrow tips, small teeth, root holes that are too big, and the bore breaking into the roots.
 - Bore: plain hole, D-flat or keyway.
-- Drag handles on the canvas for the tooth count and the tooth size.
+- **Meshing pairs.** Add a mating gear and it's placed at the right axle spacing (including profile shift) and turned so its teeth fall between the first gear's. Press play to watch both turn at their true speeds. The panel shows the ratio, axle spacing, contact ratio, play and tip clearance, and the template adds an axle-spacing gauge for drilling the frame.
+- Drag handles on the canvas for the tooth count and the tooth size, and drag the second gear round the first.
 - Output at true size: print (tiled across sheets with registration marks when the gear is bigger than the paper), PDF, SVG and DXF.
 - Undo/redo, autosave, save/open `.gear.json` files, and a shareable URL.
 
@@ -40,6 +41,7 @@ src/
     involute.ts   tooth profile maths → workshop-kit segments (pure, tested)
     gear.ts       GearSpec → outline, root drilling, bore, checks, measurements
     kinds.ts      the GearKind interface that future gear types plug into
+    train.ts      meshing: centre distance, phase, speeds, contact ratio
     design.ts     the document, defaults, presets, URL sharing
     template.ts   gear → Drawing for print, PDF, SVG and DXF
   components/     canvas, panel, toolbar, dialogs

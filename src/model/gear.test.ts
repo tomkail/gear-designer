@@ -3,6 +3,7 @@ import { drawingToDxf, drawingsToPdf } from '@tomkail/workshop-kit'
 import { DEFAULT_DOC, DEFAULT_GEAR, docFromQuery, docToQuery, dpToModule, moduleToDp, normaliseDoc, parseToothSize, type GearSpec } from './design'
 import { autoProfileShift, computeGear } from './gear'
 import { buildGearDrawing, buildPages } from './template'
+import { computeDoc } from './train'
 
 const compute = (changes: Partial<GearSpec> = {}) => computeGear({ ...DEFAULT_GEAR, ...changes }, DEFAULT_DOC.cutting, 'mm')
 const codes = (changes: Partial<GearSpec> = {}) => compute(changes).issues.map((i) => i.code)
@@ -98,7 +99,7 @@ describe('documents', () => {
 describe('output', () => {
   it('prints the default gear on one true-size A4 page', () => {
     const g = compute()
-    const pages = buildPages(DEFAULT_DOC, g, { paperId: 'a4', landscape: false, unit: 'mm', labels: true, construction: true, scaleCheck: true })
+    const pages = buildPages(DEFAULT_DOC, computeDoc({ ...DEFAULT_DOC, gears: [g.spec] }, 'mm'), { paperId: 'a4', landscape: false, unit: 'mm', labels: true, construction: true, scaleCheck: true })
     expect(pages).toHaveLength(1)
     expect(pages[0].width).toBe(210)
     expect(pages[0].mmPerUnit).toBe(1)
@@ -109,14 +110,14 @@ describe('output', () => {
 
   it('tiles a gear too big for the paper', () => {
     const g = compute({ teeth: 60, module: 5 })
-    const pages = buildPages(DEFAULT_DOC, g, { paperId: 'a4', landscape: false, unit: 'mm', labels: true, construction: true, scaleCheck: true })
+    const pages = buildPages(DEFAULT_DOC, computeDoc({ ...DEFAULT_DOC, gears: [g.spec] }, 'mm'), { paperId: 'a4', landscape: false, unit: 'mm', labels: true, construction: true, scaleCheck: true })
     expect(pages.length).toBeGreaterThan(1)
     expect(pages[0].sheet?.label).toBe('A1')
   })
 
   it('puts one root hole per tooth in the DXF', () => {
     const g = compute({ teeth: 24 })
-    const dxf = drawingToDxf(buildGearDrawing(DEFAULT_DOC, g, { unit: 'mm', labels: false, construction: false }), { text: false })
+    const dxf = drawingToDxf(buildGearDrawing(DEFAULT_DOC, computeDoc({ ...DEFAULT_DOC, gears: [g.spec] }, 'mm'), { unit: 'mm', labels: false, construction: false }), { text: false })
     const holes = dxf.split('\n0\nCIRCLE\n8\nHOLES\n').length - 1
     expect(holes).toBe(24)
     expect(dxf).toContain('\nOUTLINE\n')

@@ -51,12 +51,27 @@ export interface CuttingSpec {
   toolRadius: number
 }
 
+export interface MeshLink {
+  /** Gear ids; `b` is placed around `a` */
+  a: string
+  b: string
+  type: 'mesh'
+  /** Direction from a's centre to b's, degrees from +x (screen clockwise) */
+  angle: number
+}
+
 export interface GearDoc {
   version: 1
   name: string
   gears: GearSpec[]
+  links: MeshLink[]
+  /** The first gear drives the train */
+  driverRpm: number
   cutting: CuttingSpec
 }
+
+/** Gears in a pair for now; trains lift this in M2 */
+export const MAX_GEARS = 2
 
 export const MIN_TEETH = 6
 export const MAX_TEETH = 200
@@ -84,8 +99,18 @@ export const DEFAULT_DOC: GearDoc = {
   version: 1,
   name: '20-tooth spur gear',
   gears: [DEFAULT_GEAR],
+  links: [],
+  driverRpm: 10,
   cutting: { method: 'scroll', toolRadius: 1 },
 }
+
+/** A mating gear for `driver`: twice the teeth (a 1:2 reduction), same bore */
+export function matingGear(driver: GearSpec, id: string): GearSpec {
+  return { ...driver, id, teeth: clampTeeth(driver.teeth * 2), profileShift: 0, drillDiameter: 0, position: { x: 0, y: 0 }, phase: 0 }
+}
+
+/** Tooth size and pressure angle must match for gears to mesh, so they're shared */
+export const SHARED_KEYS = ['module', 'pressureAngle'] as const
 
 export interface Preset<T> {
   id: string
@@ -134,7 +159,7 @@ export function parseToothSize(text: string, bare: 'module' | 'dp'): number | nu
 }
 
 type GearInput = Partial<Omit<GearSpec, 'bore'>> & { bore?: Partial<BoreSpec> }
-export type DocInput = Partial<Omit<GearDoc, 'gears' | 'cutting'>> & { gears?: GearInput[]; cutting?: Partial<CuttingSpec> }
+export type DocInput = Partial<Omit<GearDoc, 'gears' | 'cutting' | 'links'>> & { gears?: GearInput[]; links?: Partial<MeshLink>[]; cutting?: Partial<CuttingSpec> }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -169,11 +194,21 @@ export function normaliseGear(input: GearInput | null | undefined, index = 0): G
 /** Normalise a (possibly partial or older) document from storage, a file or a URL */
 export function normaliseDoc(input: DocInput | null | undefined): GearDoc {
   const d = input ?? {}
-  const gears = Array.isArray(d.gears) && d.gears.length ? d.gears.map(normaliseGear) : [DEFAULT_GEAR]
+  let gears = Array.isArray(d.gears) && d.gears.length ? d.gears.slice(0, MAX_GEARS).map(normaliseGear) : [DEFAULT_GEAR]
+  // Ids must be unique for links to make sense
+  gears = gears.map((g, i) => (gears.findIndex((o) => o.id === g.id) === i ? g : { ...g, id: `g${i + 1}` }))
+  // Every gear meshes with the first, so they share its tooth size and pressure angle
+  gears = gears.map((g, i) => (i === 0 ? g : { ...g, module: gears[0].module, pressureAngle: gears[0].pressureAngle }))
+  const links: MeshLink[] = gears.slice(1).map((g) => {
+    const saved = Array.isArray(d.links) ? d.links.find((l) => l?.a === gears[0].id && l?.b === g.id) : undefined
+    return { a: gears[0].id, b: g.id, type: 'mesh', angle: num(saved?.angle, 0) }
+  })
   return {
     version: 1,
     name: typeof d.name === 'string' ? d.name.slice(0, 80) : DEFAULT_DOC.name,
     gears,
+    links,
+    driverRpm: clamp(num(d.driverRpm, DEFAULT_DOC.driverRpm), -600, 600),
     cutting: { method: 'scroll', toolRadius: Math.max(0, num(d.cutting?.toolRadius, DEFAULT_DOC.cutting.toolRadius)) },
   }
 }
@@ -184,26 +219,50 @@ export function normaliseDoc(input: DocInput | null | undefined): GearDoc {
 
 const round = (v: number) => String(Math.round(v * 1000) / 1000)
 
+function gearToQuery(q: URLSearchParams, g: GearSpec, suffix: string) {
+  const k = (key: string) => key + suffix
+  q.set(k('n'), String(g.teeth))
+  if (g.profileShift) q.set(k('x'), round(g.profileShift))
+  q.set(k('j'), round(g.backlash))
+  q.set(k('r'), g.root === 'drill' ? 'd' : 'f')
+  if (g.root === 'drill' && g.drillDiameter) q.set(k('dd'), round(g.drillDiameter))
+  if (g.root === 'fillet') q.set(k('rf'), round(g.rootFillet))
+  q.set(k('tr'), round(g.tipRound))
+  q.set(k('bt'), g.bore.type)
+  if (g.bore.type !== 'none') q.set(k('bd'), round(g.bore.diameter))
+  if (g.bore.type === 'flat') q.set(k('bf'), round(g.bore.flatAcross))
+  if (g.bore.type === 'key') {
+    q.set(k('kw'), round(g.bore.keyWidth))
+    q.set(k('kd'), round(g.bore.keyDepth))
+  }
+}
+
+function gearFromQuery(q: URLSearchParams, suffix: string): GearInput {
+  const n = (key: string) => {
+    const v = q.get(key + suffix)
+    return v === null ? undefined : parseFloat(v)
+  }
+  return {
+    id: suffix ? `g${suffix}` : 'g1',
+    teeth: n('n'),
+    profileShift: n('x') ?? 0,
+    backlash: n('j'),
+    root: q.get('r' + suffix) === 'f' ? 'fillet' : 'drill',
+    drillDiameter: n('dd') ?? 0,
+    rootFillet: n('rf'),
+    tipRound: n('tr'),
+    bore: { type: (q.get('bt' + suffix) as BoreType) ?? 'none', diameter: n('bd'), flatAcross: n('bf'), keyWidth: n('kw'), keyDepth: n('kd') },
+  }
+}
+
 export function docToQuery(doc: GearDoc): string {
-  const g = doc.gears[0]
   const q = new URLSearchParams()
   q.set('name', doc.name)
-  q.set('n', String(g.teeth))
-  q.set('m', round(g.module))
-  q.set('pa', round(g.pressureAngle))
-  if (g.profileShift) q.set('x', round(g.profileShift))
-  q.set('j', round(g.backlash))
-  q.set('r', g.root === 'drill' ? 'd' : 'f')
-  if (g.root === 'drill' && g.drillDiameter) q.set('dd', round(g.drillDiameter))
-  if (g.root === 'fillet') q.set('rf', round(g.rootFillet))
-  q.set('tr', round(g.tipRound))
-  q.set('bt', g.bore.type)
-  if (g.bore.type !== 'none') q.set('bd', round(g.bore.diameter))
-  if (g.bore.type === 'flat') q.set('bf', round(g.bore.flatAcross))
-  if (g.bore.type === 'key') {
-    q.set('kw', round(g.bore.keyWidth))
-    q.set('kd', round(g.bore.keyDepth))
-  }
+  q.set('m', round(doc.gears[0].module))
+  q.set('pa', round(doc.gears[0].pressureAngle))
+  doc.gears.forEach((g, i) => gearToQuery(q, g, i === 0 ? '' : String(i + 1)))
+  if (doc.links[0]?.angle) q.set('ang', round(doc.links[0].angle))
+  if (doc.gears.length > 1) q.set('rpm', round(doc.driverRpm))
   q.set('saw', round(doc.cutting.toolRadius))
   return q.toString()
 }
@@ -215,22 +274,14 @@ export function docFromQuery(query: string): GearDoc | null {
     const v = q.get(key)
     return v === null ? undefined : parseFloat(v)
   }
+  const gears = [gearFromQuery(q, '')]
+  if (q.has('n2')) gears.push(gearFromQuery(q, '2'))
+  for (const g of gears) Object.assign(g, { module: n('m'), pressureAngle: n('pa') })
   return normaliseDoc({
     name: q.get('name') ?? undefined,
-    gears: [
-      {
-        teeth: n('n'),
-        module: n('m'),
-        pressureAngle: n('pa'),
-        profileShift: n('x') ?? 0,
-        backlash: n('j'),
-        root: q.get('r') === 'f' ? 'fillet' : 'drill',
-        drillDiameter: n('dd') ?? 0,
-        rootFillet: n('rf'),
-        tipRound: n('tr'),
-        bore: { type: (q.get('bt') as BoreType) ?? 'none', diameter: n('bd'), flatAcross: n('bf'), keyWidth: n('kw'), keyDepth: n('kd') },
-      },
-    ],
+    gears,
+    links: gears.length > 1 ? [{ a: 'g1', b: 'g2', angle: n('ang') ?? 0 }] : [],
+    driverRpm: n('rpm'),
     cutting: { toolRadius: n('saw') },
   })
 }

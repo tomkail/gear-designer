@@ -4,6 +4,8 @@ import {
   CircleDashed,
   File as FileIcon,
   Magnet,
+  Pause,
+  Play,
   Printer,
   Redo2,
   Ruler,
@@ -25,11 +27,13 @@ import {
   modKey,
   themeList,
 } from '@tomkail/workshop-kit'
-import { designHistory } from '../stores/designStore'
+import { designHistory, useDesignStore } from '../stores/designStore'
 import { useSettingsStore, useThemeStore, useUiStore } from '../stores/settingsStore'
 
 import {
   actualSize,
+  addMatingGear,
+  togglePlaying,
   copyShareLink,
   exportDxf,
   exportGearSvg,
@@ -49,6 +53,8 @@ export function AppToolbar() {
   const themeName = useThemeStore((s) => s.themeName)
   const setTheme = useThemeStore((s) => s.setTheme)
   const setDialog = useUiStore((s) => s.setDialog)
+  const playing = useUiStore((s) => s.playing)
+  const pair = useDesignStore((s) => s.doc.gears.length > 1)
 
   const close = () => setOpenMenu(null)
   const toggle = (menu: string) => setOpenMenu(openMenu === menu ? null : menu)
@@ -77,6 +83,8 @@ export function AppToolbar() {
           <MenuItem label="Save…" shortcut={`${modKey}S`} onClick={run(saveDesign)} />
           <MenuItem label="Copy share link" onClick={run(copyShareLink)} />
           <MenuDivider />
+          <MenuItem label="Add a mating gear" onClick={run(addMatingGear)} disabled={pair} />
+          <MenuDivider />
           <MenuLabel>Template</MenuLabel>
           <MenuItem label="Print…" shortcut={`${modKey}P`} onClick={run(() => setDialog('print'))} />
           <MenuItem label="Download PDF page" onClick={run(exportPagePdf)} />
@@ -103,6 +111,9 @@ export function AppToolbar() {
       <ToolbarSeparator />
 
       <ToolbarGroup>
+        <IconToggle label={playing ? 'Pause' : 'Turn the gears'} shortcut="P" active={playing} onClick={togglePlaying}>
+          {playing ? <Pause size={18} /> : <Play size={18} />}
+        </IconToggle>
         <IconButton label="Fit to view" shortcut="F" onClick={fitView}>
           <Scan size={18} />
         </IconButton>
