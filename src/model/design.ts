@@ -8,6 +8,14 @@ import type { Vec } from '@tomkail/workshop-kit'
 
 export type GearKindId = 'spur'
 export type RootMode = 'drill' | 'fillet'
+export type ToothForm = 'full' | 'stub'
+
+/** Tooth height above and depth below the pitch circle, × module */
+export const TOOTH_FORMS: Record<ToothForm, { addendum: number; dedendum: number; label: string }> = {
+  full: { addendum: 1, dedendum: 1.25, label: 'Full depth' },
+  // AGMA 20° stub proportions
+  stub: { addendum: 0.8, dedendum: 1, label: 'Stub' },
+}
 export type BoreType = 'none' | 'round' | 'flat' | 'key'
 export type CuttingMethod = 'scroll'
 
@@ -28,6 +36,8 @@ export interface GearSpec {
   /** mm; diametral pitch is converted on input */
   module: number
   pressureAngle: number
+  /** Full-depth or stub (shorter, stronger) teeth */
+  toothForm: ToothForm
   profileShift: number
   /** Thinning of each tooth at the pitch circle, mm */
   backlash: number
@@ -84,6 +94,7 @@ export const DEFAULT_GEAR: GearSpec = {
   teeth: 20,
   module: 4,
   pressureAngle: 20,
+  toothForm: 'full',
   profileShift: 0,
   backlash: 0.4,
   root: 'drill',
@@ -110,7 +121,7 @@ export function matingGear(driver: GearSpec, id: string): GearSpec {
 }
 
 /** Tooth size and pressure angle must match for gears to mesh, so they're shared */
-export const SHARED_KEYS = ['module', 'pressureAngle'] as const
+export const SHARED_KEYS = ['module', 'pressureAngle', 'toothForm'] as const
 
 export interface Preset<T> {
   id: string
@@ -173,6 +184,7 @@ export function normaliseGear(input: GearInput | null | undefined, index = 0): G
     teeth: clampTeeth(num(g.teeth, D.teeth)),
     module: clamp(num(g.module, D.module), MIN_MODULE, MAX_MODULE),
     pressureAngle: clamp(num(g.pressureAngle, D.pressureAngle), 14.5, 30),
+    toothForm: g.toothForm === 'stub' ? 'stub' : 'full',
     profileShift: clamp(num(g.profileShift, 0), -0.5, 1),
     backlash: Math.max(0, num(g.backlash, D.backlash)),
     root: g.root === 'fillet' ? 'fillet' : 'drill',
@@ -198,7 +210,7 @@ export function normaliseDoc(input: DocInput | null | undefined): GearDoc {
   // Ids must be unique for links to make sense
   gears = gears.map((g, i) => (gears.findIndex((o) => o.id === g.id) === i ? g : { ...g, id: `g${i + 1}` }))
   // Every gear meshes with the first, so they share its tooth size and pressure angle
-  gears = gears.map((g, i) => (i === 0 ? g : { ...g, module: gears[0].module, pressureAngle: gears[0].pressureAngle }))
+  gears = gears.map((g, i) => (i === 0 ? g : { ...g, module: gears[0].module, pressureAngle: gears[0].pressureAngle, toothForm: gears[0].toothForm }))
   const links: MeshLink[] = gears.slice(1).map((g) => {
     const saved = Array.isArray(d.links) ? d.links.find((l) => l?.a === gears[0].id && l?.b === g.id) : undefined
     return { a: gears[0].id, b: g.id, type: 'mesh', angle: num(saved?.angle, 0) }
@@ -260,6 +272,7 @@ export function docToQuery(doc: GearDoc): string {
   q.set('name', doc.name)
   q.set('m', round(doc.gears[0].module))
   q.set('pa', round(doc.gears[0].pressureAngle))
+  if (doc.gears[0].toothForm === 'stub') q.set('tf', 's')
   doc.gears.forEach((g, i) => gearToQuery(q, g, i === 0 ? '' : String(i + 1)))
   if (doc.links[0]?.angle) q.set('ang', round(doc.links[0].angle))
   if (doc.gears.length > 1) q.set('rpm', round(doc.driverRpm))
@@ -276,7 +289,7 @@ export function docFromQuery(query: string): GearDoc | null {
   }
   const gears = [gearFromQuery(q, '')]
   if (q.has('n2')) gears.push(gearFromQuery(q, '2'))
-  for (const g of gears) Object.assign(g, { module: n('m'), pressureAngle: n('pa') })
+  for (const g of gears) Object.assign(g, { module: n('m'), pressureAngle: n('pa'), toothForm: q.get('tf') === 's' ? 'stub' : 'full' })
   return normaliseDoc({
     name: q.get('name') ?? undefined,
     gears,

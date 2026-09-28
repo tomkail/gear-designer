@@ -25,6 +25,9 @@ export interface ToothInput {
   /** degrees */
   pressureAngle: number
   profileShift: number
+  /** Tooth height above / depth below the pitch circle, × module (full depth 1 / 1.25; stub 0.8 / 1) */
+  addendum?: number
+  dedendum?: number
   /** Thinning of each tooth at the pitch circle, mm */
   backlash: number
   /** Tip rounding radius, mm */
@@ -64,8 +67,8 @@ export function dimensions(p: ToothInput): GearDimensions {
     alpha,
     r,
     rb: r * Math.cos(alpha),
-    ra: r + m * (1 + x),
-    rf: r - m * (1.25 - x),
+    ra: r + m * ((p.addendum ?? 1) + x),
+    rf: r - m * ((p.dedendum ?? 1.25) - x),
     s,
     psi,
     psiB: psi + inv(alpha),

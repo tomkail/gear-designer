@@ -124,8 +124,11 @@ export function computeDoc(doc: GearDoc, unit: LengthUnit): DocGeometry {
     const eps = contactRatio(raA, A.dims.rb, raB, B.dims.rb, a, alphaW, m, alpha)
     const tipClearance = Math.min(a - A.dims.ra - B.stats.rootDiameter / 2, a - B.dims.ra - A.stats.rootDiameter / 2)
 
+    // Things that lengthen the contact: taller teeth, a lower pressure angle, less rounding off the tips
+    const remedies = ['more teeth', 'less tip rounding', ...(A.spec.pressureAngle > 20 ? ['20°'] : []), ...(A.spec.toothForm === 'stub' ? ['full-depth teeth'] : [])]
+    const remedyText = `${remedies.slice(0, -1).join(', ')} or ${remedies[remedies.length - 1]}`
     if (eps < 1.2) {
-      issues.push({ code: 'contact', level: 'warning', message: `The contact ratio is only ${num(eps)}, so the gears will knock as each tooth hands over to the next. Use more teeth, less tip rounding, or 20°.` })
+      issues.push({ code: 'contact', level: 'warning', message: `The contact ratio is only ${num(eps)}, so the gears will knock as each tooth hands over to the next. Try ${remedyText}.` })
     } else if (eps < 1.4) {
       issues.push({ code: 'contact-low', level: 'info', message: `Contact ratio ${num(eps)}. Wooden gears run more smoothly at 1.4 or more.` })
     }

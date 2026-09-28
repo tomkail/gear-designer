@@ -1,6 +1,6 @@
 import { bitsFor, type LengthUnit, type Vec } from '@tomkail/workshop-kit'
 import type { BoreSpec, CuttingSpec, GearSpec } from './design'
-import { moduleToDp } from './design'
+import { TOOTH_FORMS, moduleToDp } from './design'
 import { len, num } from './format'
 import { DEG, flankAngle, gearOutline, idealDrillDiameter, maxRootFillet, maxTipRound, toothProfile, dimensions, type GearDimensions, type Path, type ToothInput, type ToothProfile } from './involute'
 
@@ -50,7 +50,7 @@ export interface GearGeometry {
     /** Width across the tooth tip before rounding */
     tipLand: number
     wholeDepth: number
-    /** Room for the mating gear's tip, against the standard 0.25 × module */
+    /** Room for the mating gear's tip; nominally (dedendum − addendum) × module */
     clearance: number
     tipRound: number
     rootFillet: number | null
@@ -74,8 +74,11 @@ export function autoDrillDiameter(dims: GearDimensions, unit: LengthUnit): numbe
 export const MIN_TIP_LAND = 0.25
 
 /** Width across the tooth tip for a given profile shift */
-export function tipLandAt(spec: Pick<GearSpec, 'teeth' | 'module' | 'pressureAngle' | 'backlash'>, x: number): number {
-  const d = dimensions({ teeth: spec.teeth, module: spec.module, pressureAngle: spec.pressureAngle, profileShift: x, backlash: spec.backlash, tipRound: 0, root: { kind: 'fillet', radius: 0 } })
+type ShiftInput = Pick<GearSpec, 'teeth' | 'module' | 'pressureAngle' | 'backlash' | 'toothForm'>
+
+export function tipLandAt(spec: ShiftInput, x: number): number {
+  const form = TOOTH_FORMS[spec.toothForm]
+  const d = dimensions({ teeth: spec.teeth, module: spec.module, pressureAngle: spec.pressureAngle, profileShift: x, backlash: spec.backlash, tipRound: 0, root: { kind: 'fillet', radius: 0 }, ...form })
   return 2 * d.ra * flankAngle(d, d.ra)
 }
 
@@ -93,8 +96,18 @@ export interface ShiftSuggestion {
  * narrower than MIN_TIP_LAND × module. With few teeth you can't have both,
  * so it stops at the most shift the tips allow.
  */
-export function autoProfileShift(spec: Pick<GearSpec, 'teeth' | 'module' | 'pressureAngle' | 'backlash'>): ShiftSuggestion {
-  const raw = 1 - (spec.teeth * Math.sin(spec.pressureAngle * DEG) ** 2) / 2
+/**
+ * Undercut starts when the mating tooth's tip line passes below the base
+ * circle's interference point: z_min = 2·h_a / sin²α, and the shift that
+ * avoids it is x_min = h_a − z·sin²α / 2 (h_a = addendum × module).
+ */
+export function undercutLimits(teeth: number, pressureAngle: number, addendum: number) {
+  const s2 = Math.sin(pressureAngle * DEG) ** 2
+  return { zMin: (2 * addendum) / s2, xMin: addendum - (teeth * s2) / 2 }
+}
+
+export function autoProfileShift(spec: ShiftInput): ShiftSuggestion {
+  const raw = undercutLimits(spec.teeth, spec.pressureAngle, TOOTH_FORMS[spec.toothForm].addendum).xMin
   const needed = raw > 0 ? Math.ceil(raw * 100) / 100 : 0
   if (needed === 0) return { value: 0, needed, capped: false }
   const minLand = MIN_TIP_LAND * spec.module
@@ -176,7 +189,9 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
   const outline = profile.tooth.segments.length === 0 || (spec.root === 'drill' && drillDiameter <= 0) ? null : gearOutline(profile)
 
   const bottom = profile.root?.bottom ?? dims.rf
-  const clearance = dims.rf + 0.25 * m - bottom
+  // The mating tip reaches the root circle less the nominal clearance (dedendum − addendum)
+  const form = TOOTH_FORMS[spec.toothForm]
+  const clearance = dims.rf + (form.dedendum - form.addendum) * m - bottom
 
   let drill: DrillPlan | null = null
   if (spec.root === 'drill' && profile.root) {
@@ -199,15 +214,25 @@ export function computeGear(spec: GearSpec, cutting: CuttingSpec, unit: LengthUn
   }
 
   // Tooth shape checks
-  const zMin = 2 / Math.sin(dims.alpha) ** 2
-  const xMin = 1 - (spec.teeth * Math.sin(dims.alpha) ** 2) / 2
+  const { zMin, xMin } = undercutLimits(spec.teeth, spec.pressureAngle, form.addendum)
   if (spec.profileShift < xMin - 1e-6) {
     const shift = autoProfileShift(spec)
-    const other = spec.pressureAngle < 25 ? autoProfileShift({ ...spec, pressureAngle: 25 }) : null
+    // Other settings that would let profile shift fix it without narrowing the tips
+    const alternatives: [string, Partial<GearSpec>][] = [
+      ['25°', { pressureAngle: 25 }],
+      ['stub teeth', { toothForm: 'stub' }],
+      ['stub teeth at 25°', { pressureAngle: 25, toothForm: 'stub' }],
+    ]
+    const works = alternatives.filter(([, change]) => {
+      const next = { ...spec, ...change }
+      return (next.pressureAngle !== spec.pressureAngle || next.toothForm !== spec.toothForm) && !autoProfileShift(next).capped
+    })
+    const alt = works[0]?.[0]
     const fix = !shift.capped
-      ? `Add profile shift of at least ${shift.needed}${other && !other.capped ? ', or use 25°' : ''}.`
-      : `Profile shift can’t fully fix it at this tooth count without making the tips too narrow; ${shift.value} is the most they allow. ${other && !other.capped ? 'Use 25°, or more teeth.' : 'Use more teeth, or accept some undercut.'}`
-    issues.push({ code: 'undercut', level: 'warning', message: `Below ${Math.ceil(zMin)} teeth at ${spec.pressureAngle}° the roots are undercut (thinned by the mating tooth). ${fix}` })
+      ? `Add profile shift of at least ${shift.needed}${alt ? `, or use ${alt}` : ''}.`
+      : `Profile shift can’t fully fix it at this tooth count without making the tips too narrow; ${shift.value} is the most they allow. ${alt ? `Use ${alt}, or more teeth.` : 'Use more teeth, or accept some undercut.'}`
+    const formLabel = spec.toothForm === 'stub' ? ' stub' : ''
+    issues.push({ code: 'undercut', level: 'warning', message: `Below ${Math.ceil(zMin)} teeth at ${spec.pressureAngle}°${formLabel} the roots are undercut (thinned by the mating tooth). ${fix}` })
   }
   const tipLand = 2 * dims.ra * flankAngle(dims, dims.ra)
   if (!profile.error && tipLand < MIN_TIP_LAND * m) {
@@ -276,6 +301,7 @@ function toToothInput(spec: GearSpec, drillDiameter: number): ToothInput {
     teeth: spec.teeth,
     module: spec.module,
     pressureAngle: spec.pressureAngle,
+    ...TOOTH_FORMS[spec.toothForm],
     profileShift: spec.profileShift,
     backlash: spec.backlash,
     tipRound: spec.tipRound * spec.module,

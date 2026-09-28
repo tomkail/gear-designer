@@ -8,6 +8,7 @@ The third of a family of woodworking tools, alongside [Serpentine](https://githu
 
 - True involute teeth, fitted with cubic Béziers (within 0.01 mm of the exact curve), so exports stay smooth and small.
 - Woodworking defaults: module 4, 20° or 25° pressure angle, backlash, tip rounding and generous root clearance.
+- Full-depth or **stub** teeth (0.8 × module above the pitch circle, 1 below). Stub teeth are stronger and undercut less, so they suit gears with few teeth.
 - **Drill the roots.** The template marks a drill centre in every tooth gap. Each hole is tangent to both flanks and forms the rounded root, so you drill every gap in square stock and then saw the flanks down to the holes. The bit is the largest standard size that reaches the root circle, or one you pick.
 - Or use filleted roots, checked against the tightest turn your saw blade can make.
 - Tooth size as module or diametral pitch (type `m4` or `6dp` in either unit), plus the tooth spacing in mm and inches, the size you can measure with a ruler.

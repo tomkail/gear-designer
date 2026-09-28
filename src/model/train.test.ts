@@ -97,6 +97,7 @@ describe('meshing pair', () => {
     ['20 / 40, drilled roots', {}, { teeth: 40 }, 0],
     ['12 / 30 with profile shift, filleted', { teeth: 12, profileShift: 0.3, root: 'fillet' }, { teeth: 30, root: 'fillet' }, 35],
     ['15 / 15 at 25°, placed below', { teeth: 15, pressureAngle: 25 }, { teeth: 15, pressureAngle: 25 }, 90],
+    ['8 / 24 stub teeth with shift', { teeth: 8, toothForm: 'stub', profileShift: 0.3 }, { teeth: 24, toothForm: 'stub' }, 60],
     ['9 / 27 with shift on both', { teeth: 9, profileShift: 0.3, pressureAngle: 25 }, { teeth: 27, profileShift: 0.2, pressureAngle: 25 }, -120],
   ]
 
@@ -132,10 +133,12 @@ describe('meshing pair', () => {
     expect(geo.meshes[0].issues.map((i) => i.code)).toContain('contact')
   })
 
-  it('shares tooth size and pressure angle across the pair', () => {
-    const doc = pair({ module: 5 }, { module: 3, pressureAngle: 25 })
+  it('shares tooth size, pressure angle and tooth depth across the pair', () => {
+    const doc = pair({ module: 5, toothForm: 'stub' }, { module: 3, pressureAngle: 25, toothForm: 'full' })
     expect(doc.gears[1].module).toBe(5)
     expect(doc.gears[1].pressureAngle).toBe(20)
+    expect(doc.gears[1].toothForm).toBe('stub')
+    expect(docFromQuery(docToQuery(doc))!.gears[1].toothForm).toBe('stub')
   })
 
   it('round-trips a pair through the share URL', () => {

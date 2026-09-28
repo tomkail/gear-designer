@@ -80,6 +80,37 @@ describe('gear checks', () => {
   })
 })
 
+describe('stub teeth', () => {
+  it('uses stub proportions: 0.8 × module above the pitch circle, 1 below', () => {
+    const g = compute({ toothForm: 'stub', root: 'fillet' })
+    expect(g.dims.ra).toBeCloseTo(40 + 0.8 * 4)
+    expect(g.dims.rf).toBeCloseTo(40 - 4)
+    // Nominal clearance is dedendum − addendum = 0.2 × module
+    expect(g.stats.clearance).toBeCloseTo(0.2 * 4)
+    expect(g.valid).toBe(true)
+  })
+
+  it('undercuts at fewer teeth than full depth', () => {
+    // z_min = 2·0.8 / sin²20° = 13.7
+    expect(codes({ toothForm: 'stub', teeth: 13 })).toContain('undercut')
+    expect(codes({ toothForm: 'stub', teeth: 14 })).not.toContain('undercut')
+    expect(codes({ teeth: 14 })).toContain('undercut')
+  })
+
+  it('lets auto profile shift fix a small gear that full depth can’t', () => {
+    const full = autoProfileShift({ ...DEFAULT_GEAR, teeth: 10 })
+    const stub = autoProfileShift({ ...DEFAULT_GEAR, teeth: 10, toothForm: 'stub' })
+    expect(full.capped).toBe(true)
+    expect(stub.capped).toBe(false)
+    expect(codes({ teeth: 10, toothForm: 'stub', profileShift: stub.value })).not.toContain('undercut')
+  })
+
+  it('suggests stub teeth when they would fix the undercut', () => {
+    const message = compute({ teeth: 10 }).issues.find((i) => i.code === 'undercut')!.message
+    expect(message).toMatch(/stub teeth/)
+  })
+})
+
 describe('units and parsing', () => {
   it('converts between module and diametral pitch', () => {
     expect(moduleToDp(25.4)).toBe(1)

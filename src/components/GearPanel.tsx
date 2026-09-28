@@ -18,7 +18,7 @@ import {
 } from '@tomkail/workshop-kit'
 import { useDesignStore } from '../stores/designStore'
 import { useSettingsStore, useUiStore } from '../stores/settingsStore'
-import { BLADES, MAX_GEARS, MAX_MODULE, MAX_TEETH, MIN_MODULE, MIN_TEETH, TOOTH_SIZES, moduleToDp, parseToothSize, type BoreType, type GearSpec, type RootMode } from '../model/design'
+import { BLADES, TOOTH_FORMS, MAX_GEARS, MAX_MODULE, MAX_TEETH, MIN_MODULE, MIN_TEETH, TOOTH_SIZES, moduleToDp, parseToothSize, type BoreType, type GearSpec, type RootMode, type ToothForm } from '../model/design'
 import { autoProfileShift } from '../model/gear'
 import { computeDoc, gearLetter } from '../model/train'
 import { bitSize, docSpecLines } from '../model/template'
@@ -216,6 +216,24 @@ export function GearPanel({ className }: { className?: string }) {
               options={[
                 { value: 20, label: '20°' },
                 { value: 25, label: '25°' },
+              ]}
+            />
+          </Field>
+          <Field
+            label="Tooth depth"
+            hint={
+              (pair ? 'Shared by both gears. ' : '') +
+              (spec.toothForm === 'stub'
+                ? `Stub teeth: ${TOOTH_FORMS.stub.addendum} × module above the pitch circle instead of 1. Stronger, less undercut, and easier to cut with few teeth; a little less overlap between teeth.`
+                : 'Standard full-depth teeth. Stub teeth are shorter and stronger, and suit gears with few teeth.')
+            }
+          >
+            <Segmented<ToothForm>
+              value={spec.toothForm}
+              onChange={(toothForm) => set({ toothForm })}
+              options={[
+                { value: 'full', label: 'Full', title: 'Full depth: 1 × module above the pitch circle, 1.25 below' },
+                { value: 'stub', label: 'Stub', title: 'Stub: 0.8 × module above the pitch circle, 1 below' },
               ]}
             />
           </Field>

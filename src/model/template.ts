@@ -83,7 +83,7 @@ export function specLines(spec: GearSpec, g: GearGeometry, unit: LengthUnit): st
   const s = g.stats
   const shift = spec.profileShift ? ` · profile shift ${num(spec.profileShift)}` : ''
   const lines = [
-    `${spec.teeth} teeth · ${toothSizeLabel(spec.module, unit)} · ${spec.pressureAngle}° pressure angle${shift}`,
+    `${spec.teeth} ${spec.toothForm === 'stub' ? 'stub ' : ''}teeth · ${toothSizeLabel(spec.module, unit)} · ${spec.pressureAngle}° pressure angle${shift}`,
     `Pitch Ø${len(s.pitchDiameter, unit)} · outside Ø${len(s.outsideDiameter, unit)} · root Ø${len(s.rootDiameter, unit)} · tooth spacing ${len(s.circularPitch, unit)}`,
   ]
   if (g.drill) {
